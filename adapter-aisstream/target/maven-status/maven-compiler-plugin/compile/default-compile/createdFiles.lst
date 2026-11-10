@@ -1,0 +1,6 @@
+com\darkfleet\adapter\aisstream\AisStreamController.class
+com\darkfleet\adapter\aisstream\AisStreamKafkaConfig.class
+com\darkfleet\adapter\aisstream\AisStreamFeedService.class
+com\darkfleet\adapter\aisstream\AisStreamAdapterApplication.class
+com\darkfleet\adapter\aisstream\AisStreamNormalizer.class
+com\darkfleet\adapter\aisstream\AisStreamFeedService$AisStreamListener.class

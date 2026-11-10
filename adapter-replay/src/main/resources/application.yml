@@ -1,0 +1,14 @@
+server:
+  port: ${SERVER_PORT:8083}
+
+spring:
+  application:
+    name: adapter-replay
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html

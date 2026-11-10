@@ -1,0 +1,21 @@
+server:
+  port: ${SERVER_PORT:8084}
+
+spring:
+  application:
+    name: track-detection-service
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+
+darkfleet:
+  kafka-streams:
+    enabled: ${DARKFLEET_KAFKA_STREAMS_ENABLED:false}
+    application-id: darkfleet-track-detection-streams
+  kafka-listener:
+    enabled: ${DARKFLEET_KAFKA_LISTENER_ENABLED:false}
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html

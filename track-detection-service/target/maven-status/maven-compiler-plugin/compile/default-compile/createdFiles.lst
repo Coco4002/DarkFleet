@@ -1,0 +1,11 @@
+com\darkfleet\detection\TrackDetectionController.class
+com\darkfleet\detection\CoverageTracker$CellHourAccumulator.class
+com\darkfleet\detection\KafkaStreamingConfig$ActiveKafkaStreamsConfiguration.class
+com\darkfleet\detection\KafkaStreamingConfig.class
+com\darkfleet\detection\TrackAndDetectionEngine$RecentEncounterRef.class
+com\darkfleet\detection\TrackAndDetectionEngine.class
+com\darkfleet\detection\CoverageTracker.class
+com\darkfleet\detection\TrackAndDetectionEngine$PairEncounterState.class
+com\darkfleet\detection\TrackAndDetectionEngine$MutableVesselState.class
+com\darkfleet\detection\TrackAndDetectionEngine$ProcessingOutcome.class
+com\darkfleet\detection\TrackDetectionApplication.class

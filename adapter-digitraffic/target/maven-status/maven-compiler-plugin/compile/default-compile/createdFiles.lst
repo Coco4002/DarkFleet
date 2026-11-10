@@ -1,0 +1,6 @@
+com\darkfleet\adapter\digitraffic\DigitrafficAdapterApplication.class
+com\darkfleet\adapter\digitraffic\DigitrafficController.class
+com\darkfleet\adapter\digitraffic\DigitrafficFeedService$1.class
+com\darkfleet\adapter\digitraffic\DigitrafficKafkaConfig.class
+com\darkfleet\adapter\digitraffic\DigitrafficFeedService.class
+com\darkfleet\adapter\digitraffic\DigitrafficNormalizer.class
