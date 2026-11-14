@@ -3,7 +3,6 @@ package com.darkfleet.adapter.replay;
 import com.darkfleet.common.model.AisMessageType;
 import com.darkfleet.common.model.AisSource;
 import com.darkfleet.common.model.NormalizedAisMessage;
-import org.springframework.stereotype.Component;
 
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -11,220 +10,223 @@ import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Objects;
 
 /**
- * Parses Danish Maritime Authority (DMA) historical AIS CSV lines into {@link NormalizedAisMessage} records.
- * Every parsed message is explicitly flagged with {@code historical = true}.
+ * Parses Danish Maritime Authority AIS CSV files (aisdk-YYYY-MM-DD.csv) into normalized messages.
+ * <ul>
+ *   <li>Columns are found by header name, so a file with extra or reordered columns still parses.</li>
+ *   <li>Only vessels (Class A and Class B) are kept; base stations, aids to navigation and the like are skipped.</li>
+ *   <li>A row with a real position becomes a position report. Static rows carry the placeholder
+ *       position 91/0 and only yield a static report.</li>
+ *   <li>DMA repeats a vessel's static data on many rows; a static report is emitted only when it
+ *       differs from the last one emitted for that MMSI.</li>
+ *   <li>Every message is marked historical, with source DMA_REPLAY.</li>
+ * </ul>
+ * One parser instance per file; not thread-safe.
  */
-@Component
-public class DmaCsvParser {
+public final class DmaCsvParser {
 
-    private static final DateTimeFormatter DMA_TIMESTAMP_FORMAT =
-            DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm:ss");
+    private static final DateTimeFormatter DMA_TIME = DateTimeFormatter.ofPattern("dd/MM/uuuu HH:mm:ss", Locale.ROOT);
+    private static final int MAX_TRACKED_VESSELS = 500_000;
 
-    /**
-     * Parses a multi-line DMA CSV payload into normalized messages (position + static Type 5 where present).
-     */
-    public List<NormalizedAisMessage> parseCsvContent(String csvContent) {
-        if (csvContent == null || csvContent.isBlank()) {
-            return List.of();
+    private final Map<String, Integer> columns;
+    private final Map<String, String> lastStaticSignature = new LinkedHashMap<>(16, 0.75f, true) {
+        @Override
+        protected boolean removeEldestEntry(Map.Entry<String, String> eldest) {
+            return size() > MAX_TRACKED_VESSELS;
         }
-        List<NormalizedAisMessage> results = new ArrayList<>();
-        String[] lines = csvContent.split("\\r?\\n");
-        for (String line : lines) {
-            String trimmed = line.trim();
-            if (trimmed.isEmpty() || trimmed.startsWith("#") || trimmed.toLowerCase().startsWith("timestamp")) {
-                continue;
-            }
-            results.addAll(parseCsvLine(trimmed));
-        }
-        return results;
+    };
+
+    private long rows;
+    private long skippedNotVessel;
+    private long skippedInvalid;
+
+    private DmaCsvParser(Map<String, Integer> columns) {
+        this.columns = columns;
     }
 
     /**
-     * Parses a single DMA CSV row:
-     * Timestamp,Type of mobile,MMSI,Latitude,Longitude,Navigational status,ROT,SOG,COG,Heading,IMO,Callsign,Name,Ship type,Draught,Destination[,Source]
+     * @param headerLine the file's first line, e.g. {@code # Timestamp,Type of mobile,MMSI,...}
+     * @throws IllegalArgumentException if a required column is missing
      */
-    public List<NormalizedAisMessage> parseCsvLine(String csvLine) {
-        if (csvLine == null || csvLine.isBlank() || csvLine.startsWith("#")) {
-            return List.of();
+    public static DmaCsvParser fromHeader(String headerLine) {
+        String header = headerLine.startsWith("#") ? headerLine.substring(1) : headerLine;
+        Map<String, Integer> columns = new HashMap<>();
+        List<String> names = CsvLine.split(header);
+        for (int i = 0; i < names.size(); i++) {
+            columns.put(names.get(i).trim().toLowerCase(Locale.ROOT), i);
         }
-        String[] cols = csvLine.split(",", -1);
-        if (cols.length < 10) {
-            return List.of();
+        for (String required : List.of("timestamp", "type of mobile", "mmsi", "latitude", "longitude")) {
+            if (!columns.containsKey(required)) {
+                throw new IllegalArgumentException("Not a DMA AIS file: missing column '" + required + "'");
+            }
         }
-        try {
-            Instant eventTime = parseTimestamp(cols[0].trim());
-            String mmsi = cols[2].trim();
-            if (mmsi.isEmpty()) {
-                return List.of();
-            }
-            Double lat = parseDoubleOrNull(cols[3]);
-            Double lon = parseDoubleOrNull(cols[4]);
-            Integer navStatus = parseNaturalNavStatus(cols[5]);
-            Double sog = parseDoubleOrDefault(cols[7], 0.0);
-            Double cog = parseDoubleOrDefault(cols[8], 0.0);
-            Double heading = parseDoubleOrNull(cols[9]);
-
-            String imo = cols.length > 10 ? cleanImo(cols[10]) : null;
-            String callSign = cols.length > 11 ? cleanText(cols[11]) : null;
-            String vesselName = cols.length > 12 ? cleanText(cols[12]) : null;
-            Integer shipType = cols.length > 13 ? parseShipType(cols[13]) : null;
-            Double draught = cols.length > 14 ? parseDoubleOrNull(cols[14]) : null;
-            String destination = cols.length > 15 ? cleanText(cols[15]) : null;
-            AisSource source = cols.length > 16 ? parseSource(cols[16]) : AisSource.DMA_REPLAY;
-
-            List<NormalizedAisMessage> emitted = new ArrayList<>(2);
-
-            if (imo != null || vesselName != null || shipType != null || draught != null) {
-                emitted.add(NormalizedAisMessage.staticReport(
-                        mmsi,
-                        eventTime,
-                        source,
-                        true,
-                        imo,
-                        vesselName,
-                        callSign,
-                        shipType,
-                        draught,
-                        destination
-                ));
-            }
-
-            if (lat != null && lon != null) {
-                NormalizedAisMessage posMsg = new NormalizedAisMessage(
-                        mmsi,
-                        eventTime,
-                        lat,
-                        lon,
-                        sog,
-                        cog,
-                        heading,
-                        navStatus,
-                        source,
-                        AisMessageType.POSITION_REPORT,
-                        Instant.now(),
-                        true,
-                        imo,
-                        vesselName,
-                        callSign,
-                        shipType,
-                        draught,
-                        destination
-                );
-                if (posMsg.hasValidCoordinates()) {
-                    emitted.add(posMsg);
-                }
-            }
-
-            return emitted;
-        } catch (Exception e) {
-            return List.of();
-        }
+        return new DmaCsvParser(columns);
     }
 
-    private Instant parseTimestamp(String raw) {
-        try {
-            return Instant.parse(raw);
-        } catch (DateTimeParseException ignored) {
+    /** @return zero, one or two messages (static report first, then position) */
+    public List<NormalizedAisMessage> parse(String line) {
+        if (line == null || line.isBlank() || line.startsWith("#")) {
+            return List.of();
         }
-        try {
-            return LocalDateTime.parse(raw, DMA_TIMESTAMP_FORMAT).toInstant(ZoneOffset.UTC);
-        } catch (DateTimeParseException ignored) {
-            return Instant.now();
+        rows++;
+        List<String> f = CsvLine.split(line);
+
+        String mobile = text(f, "type of mobile");
+        if (!"Class A".equalsIgnoreCase(mobile) && !"Class B".equalsIgnoreCase(mobile)) {
+            skippedNotVessel++;
+            return List.of();
         }
+        String mmsi = text(f, "mmsi");
+        Instant time = timestamp(text(f, "timestamp"));
+        if (mmsi == null || !mmsi.matches("\\d{9}") || time == null) {
+            skippedInvalid++;
+            return List.of();
+        }
+
+        List<NormalizedAisMessage> out = new ArrayList<>(2);
+        NormalizedAisMessage staticReport = staticReport(f, mmsi, time);
+        if (staticReport != null) {
+            String signature = staticSignature(staticReport);
+            if (!signature.equals(lastStaticSignature.get(mmsi))) {
+                lastStaticSignature.put(mmsi, signature);
+                out.add(staticReport);
+            }
+        }
+        NormalizedAisMessage position = positionReport(f, mmsi, time);
+        if (position != null) {
+            out.add(position);
+        }
+        return out;
     }
 
-    private Double parseDoubleOrNull(String val) {
-        if (val == null || val.isBlank() || "Undefined".equalsIgnoreCase(val.trim())) {
+    public long rows() {
+        return rows;
+    }
+
+    public long skippedNotVessel() {
+        return skippedNotVessel;
+    }
+
+    public long skippedInvalid() {
+        return skippedInvalid;
+    }
+
+    private NormalizedAisMessage positionReport(List<String> f, String mmsi, Instant time) {
+        Double lat = number(f, "latitude");
+        Double lon = number(f, "longitude");
+        if (lat == null || lon == null) {
+            return null;
+        }
+        Double heading = number(f, "heading");
+        if (heading != null && (heading < 0 || heading >= 360)) {
+            heading = null; // 511 = not available
+        }
+        Double cog = number(f, "cog");
+        if (cog != null && (cog < 0 || cog >= 360)) {
+            cog = null; // 360 = not available
+        }
+        Double sog = number(f, "sog");
+        if (sog != null && (sog < 0 || sog >= 102.3)) {
+            sog = null; // 102.3 = not available
+        }
+        NormalizedAisMessage msg = new NormalizedAisMessage(
+                mmsi, time, lat, lon, sog, cog, heading,
+                DmaVocabulary.navStatus(text(f, "navigational status")).orElse(null),
+                AisSource.DMA_REPLAY, AisMessageType.POSITION_REPORT, Instant.now(), true,
+                null, null, null, null, null, null, null, null, null);
+        return msg.hasValidCoordinates() ? msg : null;
+    }
+
+    private NormalizedAisMessage staticReport(List<String> f, String mmsi, Instant time) {
+        String imo = text(f, "imo");
+        if (imo != null && !imo.matches("\\d{7}")) {
+            imo = null;
+        }
+        String name = text(f, "name");
+        String callSign = text(f, "callsign");
+        Integer shipType = DmaVocabulary.shipType(text(f, "ship type")).orElse(null);
+        Double draught = number(f, "draught");
+        if (draught != null && draught <= 0) {
+            draught = null;
+        }
+        String destination = text(f, "destination");
+
+        Integer length = NormalizedAisMessage.dimension(integer(f, "a"), integer(f, "b"));
+        if (length == null) {
+            length = positive(integer(f, "length"));
+        }
+        Integer beam = NormalizedAisMessage.dimension(integer(f, "c"), integer(f, "d"));
+        if (beam == null) {
+            beam = positive(integer(f, "width"));
+        }
+        Instant eta = timestamp(text(f, "eta"));
+
+        if (imo == null && name == null && callSign == null && shipType == null && draught == null && length == null) {
+            return null;
+        }
+        return NormalizedAisMessage.staticReport(mmsi, time, AisSource.DMA_REPLAY, true,
+                imo, name, callSign, shipType, draught, destination, length, beam, eta);
+    }
+
+    private static String staticSignature(NormalizedAisMessage m) {
+        return String.join("|",
+                Objects.toString(m.imoNumber(), ""), Objects.toString(m.vesselName(), ""),
+                Objects.toString(m.callSign(), ""), Objects.toString(m.shipType(), ""),
+                Objects.toString(m.draughtMeters(), ""), Objects.toString(m.destination(), ""),
+                Objects.toString(m.lengthMeters(), ""), Objects.toString(m.beamMeters(), ""),
+                Objects.toString(m.eta(), ""));
+    }
+
+    /** Field text, or null when missing, blank or a DMA "unknown" placeholder. */
+    private String text(List<String> f, String column) {
+        Integer i = columns.get(column);
+        if (i == null || i >= f.size()) {
+            return null;
+        }
+        String v = f.get(i).trim();
+        if (v.isEmpty() || v.equalsIgnoreCase("Unknown") || v.equalsIgnoreCase("Undefined")
+                || v.equalsIgnoreCase("Unknown value")) {
+            return null;
+        }
+        return v;
+    }
+
+    private Double number(List<String> f, String column) {
+        String v = text(f, column);
+        if (v == null) {
             return null;
         }
         try {
-            return Double.parseDouble(val.trim());
+            return Double.parseDouble(v);
         } catch (NumberFormatException e) {
             return null;
         }
     }
 
-    private Double parseDoubleOrDefault(String val, double fallback) {
-        Double parsed = parseDoubleOrNull(val);
-        return parsed != null ? parsed : fallback;
+    private Integer integer(List<String> f, String column) {
+        Double d = number(f, column);
+        return d == null ? null : (int) Math.round(d);
     }
 
-    private Integer parseNaturalNavStatus(String val) {
-        if (val == null || val.isBlank()) {
-            return 0;
-        }
-        String trimmed = val.trim().toLowerCase();
-        if (trimmed.contains("under way")) {
-            return 0;
-        }
-        if (trimmed.contains("at anchor")) {
-            return 1;
-        }
-        if (trimmed.contains("moored")) {
-            return 5;
+    private static Integer positive(Integer v) {
+        return v != null && v > 0 ? v : null;
+    }
+
+    private static Instant timestamp(String v) {
+        if (v == null) {
+            return null;
         }
         try {
-            return Integer.parseInt(trimmed);
-        } catch (NumberFormatException e) {
-            return 0;
-        }
-    }
-
-    private Integer parseShipType(String val) {
-        if (val == null || val.isBlank()) {
+            return LocalDateTime.parse(v, DMA_TIME).toInstant(ZoneOffset.UTC);
+        } catch (DateTimeParseException e) {
             return null;
         }
-        String trimmed = val.trim();
-        try {
-            return Integer.parseInt(trimmed);
-        } catch (NumberFormatException ignored) {
-        }
-        String lower = trimmed.toLowerCase();
-        if (lower.contains("tanker")) {
-            return 80;
-        }
-        if (lower.contains("cargo")) {
-            return 70;
-        }
-        if (lower.contains("tug")) {
-            return 52;
-        }
-        if (lower.contains("pilot")) {
-            return 50;
-        }
-        return null;
-    }
-
-    private AisSource parseSource(String val) {
-        if (val == null || val.isBlank()) {
-            return AisSource.DMA_REPLAY;
-        }
-        try {
-            return AisSource.valueOf(val.trim().toUpperCase());
-        } catch (IllegalArgumentException e) {
-            return AisSource.DMA_REPLAY;
-        }
-    }
-
-    private String cleanImo(String raw) {
-        if (raw == null) {
-            return null;
-        }
-        String digits = raw.replaceAll("[^0-9]", "");
-        return digits.length() >= 7 ? digits : null;
-    }
-
-    private String cleanText(String raw) {
-        if (raw == null) {
-            return null;
-        }
-        String cleaned = raw.trim();
-        if (cleaned.isEmpty() || "Unknown".equalsIgnoreCase(cleaned) || "Undefined".equalsIgnoreCase(cleaned)) {
-            return null;
-        }
-        return cleaned;
     }
 }
