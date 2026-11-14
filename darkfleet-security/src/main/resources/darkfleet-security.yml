@@ -1,0 +1,12 @@
+# Shared API keys, imported by each service with
+#   spring.config.import: optional:classpath:darkfleet-security.yml
+# Values come from the environment (.env); a blank key creates no client.
+darkfleet:
+  security:
+    api-clients:
+      - name: admin
+        key: ${DARKFLEET_ADMIN_API_KEY:}
+        roles: [ADMIN, ANALYST]
+      - name: internal
+        key: ${DARKFLEET_INTERNAL_API_KEY:}
+        roles: [SERVICE]

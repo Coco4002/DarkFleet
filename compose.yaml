@@ -1,0 +1,148 @@
+# DarkFleet stack: the same file runs locally and on the server.
+#   cp .env.example .env    # fill in values
+#   docker compose up -d --build
+# Replay adapter (development and tests only):  docker compose --profile replay up -d
+name: darkfleet
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "50m"
+    max-file: "5"
+
+x-service: &service
+  restart: unless-stopped
+  logging: *logging
+  mem_limit: 512m
+
+x-security-env: &security-env
+  DARKFLEET_ADMIN_API_KEY: ${DARKFLEET_ADMIN_API_KEY:-}
+  DARKFLEET_INTERNAL_API_KEY: ${DARKFLEET_INTERNAL_API_KEY:-}
+
+services:
+  kafka:
+    image: apache/kafka:4.4.0
+    restart: unless-stopped
+    environment:
+      KAFKA_NODE_ID: 1
+      # Without this the image writes to /tmp inside the container and the volume stays empty.
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: INTERNAL://:9092,EXTERNAL://:9094,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:9092,EXTERNAL://localhost:${KAFKA_HOST_PORT:-9092}
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_NUM_PARTITIONS: 6
+      KAFKA_LOG_RETENTION_HOURS: 48
+      KAFKA_COMPRESSION_TYPE: zstd
+      KAFKA_HEAP_OPTS: "-Xms768m -Xmx768m"
+    ports:
+      # Host access for local tools only; containers use kafka:9092.
+      - "127.0.0.1:${KAFKA_HOST_PORT:-9092}:9094"
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 > /dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+    logging: *logging
+
+  postgres:
+    image: postgis/postgis:18-3.7
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: darkfleet
+      POSTGRES_USER: darkfleet
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    ports:
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U darkfleet -d darkfleet"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    logging: *logging
+
+  caddy:
+    image: caddy:2.11.9-alpine
+    restart: unless-stopped
+    environment:
+      # ":80" locally; the domain name on the server, which makes Caddy fetch HTTPS certificates.
+      DARKFLEET_SITE_ADDRESS: ${DARKFLEET_SITE_ADDRESS:-:80}
+    ports:
+      - "${CADDY_HTTP_PORT:-80}:80"
+      - "${CADDY_HTTPS_PORT:-443}:443"
+      - "${CADDY_HTTPS_PORT:-443}:443/udp"
+    volumes:
+      - ./deploy/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./deploy/caddy/site:/srv:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    logging: *logging
+
+  adapter-aisstream:
+    <<: *service
+    build:
+      context: .
+      args:
+        MODULE: adapter-aisstream
+    image: ${DARKFLEET_IMAGE_PREFIX:-darkfleet-}adapter-aisstream:${DARKFLEET_TAG:-dev}
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      <<: *security-env
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      DARKFLEET_AISSTREAM_API_KEY: ${AISSTREAM_API_KEY:-}
+      DARKFLEET_AISSTREAM_AUTO_CONNECT: "true"
+    ports:
+      - "127.0.0.1:8081:8081"
+
+  adapter-digitraffic:
+    <<: *service
+    build:
+      context: .
+      args:
+        MODULE: adapter-digitraffic
+    image: ${DARKFLEET_IMAGE_PREFIX:-darkfleet-}adapter-digitraffic:${DARKFLEET_TAG:-dev}
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      <<: *security-env
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      DARKFLEET_DIGITRAFFIC_AUTO_CONNECT: "true"
+    ports:
+      - "127.0.0.1:8082:8082"
+
+  adapter-replay:
+    <<: *service
+    profiles: [replay]
+    build:
+      context: .
+      args:
+        MODULE: adapter-replay
+    image: ${DARKFLEET_IMAGE_PREFIX:-darkfleet-}adapter-replay:${DARKFLEET_TAG:-dev}
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      <<: *security-env
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    ports:
+      - "127.0.0.1:8083:8083"
+
+volumes:
+  kafka-data:
+  postgres-data:
+  caddy-data:
+  caddy-config:

@@ -6,6 +6,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -31,6 +32,8 @@ public class AisStreamController {
         return feedService.getStatus();
     }
 
+    @PreAuthorize("hasRole('ADMIN')")
+
     @PostMapping("/disconnect")
     @Operation(summary = "Simulate an aisstream.io feed outage while keeping other feeds running")
     public Map<String, Object> disconnect() {
@@ -38,12 +41,16 @@ public class AisStreamController {
         return feedService.getStatus();
     }
 
+    @PreAuthorize("hasRole('ADMIN')")
+
     @PostMapping("/reconnect")
     @Operation(summary = "Restore the aisstream.io feed connection")
     public Map<String, Object> reconnect() {
         feedService.reconnect();
         return feedService.getStatus();
     }
+
+    @PreAuthorize("hasRole('ADMIN')")
 
     @PostMapping("/ingest")
     @Operation(summary = "Ingest a raw aisstream.io JSON frame and publish normalized message to Kafka")
@@ -55,6 +62,8 @@ public class AisStreamController {
                         "reason", "Frame ignored, invalid, or adapter is disconnected"
                 )));
     }
+
+    @PreAuthorize("hasRole('ADMIN')")
 
     @PostMapping("/publish-normalized")
     @Operation(summary = "Publish a pre-normalized AIS message directly through the aisstream adapter")

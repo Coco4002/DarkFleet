@@ -6,6 +6,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -32,12 +33,16 @@ public class DigitrafficController {
         return feedService.getStatus();
     }
 
+    @PreAuthorize("hasRole('ADMIN')")
+
     @PostMapping("/disconnect")
     @Operation(summary = "Simulate a Digitraffic feed outage while keeping other feeds active")
     public Map<String, Object> disconnect() {
         feedService.simulateDisconnect();
         return feedService.getStatus();
     }
+
+    @PreAuthorize("hasRole('ADMIN')")
 
     @PostMapping("/reconnect")
     @Operation(summary = "Reconnect the Digitraffic MQTT feed")
@@ -46,12 +51,16 @@ public class DigitrafficController {
         return feedService.getStatus();
     }
 
+    @PreAuthorize("hasRole('ADMIN')")
+
     @PostMapping("/poll-rest-snapshot")
     @Operation(summary = "Fetch latest Gulf of Finland vessel locations from Digitraffic REST API")
     public Map<String, Object> pollSnapshot() {
         int count = feedService.pollRestLocationsSnapshot();
         return Map.of("publishedFromSnapshot", count, "attribution", DigitrafficFeedService.ATTRIBUTION);
     }
+
+    @PreAuthorize("hasRole('ADMIN')")
 
     @PostMapping("/ingest-mqtt")
     @Operation(summary = "Ingest a Digitraffic MQTT message (vessels-v2/<mmsi>/location or metadata)")
@@ -66,6 +75,8 @@ public class DigitrafficController {
                         "reason", "Invalid topic/payload or Digitraffic adapter is disconnected"
                 )));
     }
+
+    @PreAuthorize("hasRole('ADMIN')")
 
     @PostMapping("/publish-normalized")
     @Operation(summary = "Publish a normalized message through the Digitraffic adapter")

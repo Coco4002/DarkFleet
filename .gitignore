@@ -1,0 +1,13 @@
+# build output
+target/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# secrets
+.env
+
+# coverage test recordings
+tools/coverage-test/data/

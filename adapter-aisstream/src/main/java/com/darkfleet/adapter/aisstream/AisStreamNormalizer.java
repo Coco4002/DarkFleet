@@ -4,7 +4,7 @@ import com.darkfleet.common.kafka.JsonSerde;
 import com.darkfleet.common.model.AisMessageType;
 import com.darkfleet.common.model.AisSource;
 import com.darkfleet.common.model.NormalizedAisMessage;
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
@@ -25,7 +25,7 @@ public class AisStreamNormalizer {
         }
         try {
             JsonNode root = JsonSerde.mapper().readTree(rawJson);
-            String messageType = root.path("MessageType").asText("");
+            String messageType = root.path("MessageType").asString("");
             JsonNode meta = root.path("MetaData");
             JsonNode messageNode = root.path("Message");
 
@@ -34,8 +34,8 @@ public class AisStreamNormalizer {
                 return Optional.empty();
             }
 
-            Instant eventTime = parseTimeUtc(meta.path("time_utc").asText(null));
-            String metaShipName = cleanString(meta.path("ShipName").asText(null));
+            Instant eventTime = parseTimeUtc(meta.path("time_utc").asString(null));
+            String metaShipName = cleanString(meta.path("ShipName").asString(null));
 
             if ("PositionReport".equalsIgnoreCase(messageType)
                     || "StandardClassBPositionReport".equalsIgnoreCase(messageType)) {
@@ -87,13 +87,13 @@ public class AisStreamNormalizer {
                 JsonNode staticData = messageNode.path("ShipStaticData");
                 long imoVal = staticData.path("ImoNumber").asLong(0L);
                 String imo = imoVal > 0 ? String.valueOf(imoVal) : null;
-                String name = cleanString(staticData.path("Name").asText(metaShipName));
-                String callSign = cleanString(staticData.path("CallSign").asText(null));
+                String name = cleanString(staticData.path("Name").asString(metaShipName));
+                String callSign = cleanString(staticData.path("CallSign").asString(null));
                 Integer shipType = staticData.hasNonNull("Type") ? staticData.path("Type").asInt() : null;
                 Double draught = staticData.hasNonNull("MaximumStaticDraught")
                         ? staticData.path("MaximumStaticDraught").asDouble()
                         : null;
-                String destination = cleanString(staticData.path("Destination").asText(null));
+                String destination = cleanString(staticData.path("Destination").asString(null));
 
                 return Optional.of(NormalizedAisMessage.staticReport(
                         mmsi,
@@ -119,7 +119,7 @@ public class AisStreamNormalizer {
             return String.valueOf(meta.get("MMSI").asLong());
         }
         if (meta.hasNonNull("MMSI_String")) {
-            return meta.get("MMSI_String").asText().trim();
+            return meta.get("MMSI_String").asString().trim();
         }
         JsonNode pos = messageNode.path("PositionReport");
         if (pos.hasNonNull("UserID")) {

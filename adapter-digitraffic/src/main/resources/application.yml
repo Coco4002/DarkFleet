@@ -2,12 +2,17 @@ server:
   port: ${SERVER_PORT:8082}
 
 spring:
+  config:
+    import: optional:classpath:darkfleet-security.yml
   application:
     name: adapter-digitraffic
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
 
 darkfleet:
+  security:
+    public-get-paths:
+      - /api/v1/adapter/digitraffic/status
   digitraffic:
     mqtt-url: ${DARKFLEET_DIGITRAFFIC_MQTT_URL:wss://meri.digitraffic.fi:443/mqtt}
     rest-locations-url: ${DARKFLEET_DIGITRAFFIC_REST_URL:https://meri.digitraffic.fi/api/ais/v1/locations}

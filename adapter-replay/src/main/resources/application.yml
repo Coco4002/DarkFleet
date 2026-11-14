@@ -2,6 +2,8 @@ server:
   port: ${SERVER_PORT:8083}
 
 spring:
+  config:
+    import: optional:classpath:darkfleet-security.yml
   application:
     name: adapter-replay
   kafka:
@@ -12,3 +14,8 @@ springdoc:
     path: /v3/api-docs
   swagger-ui:
     path: /swagger-ui.html
+
+darkfleet:
+  security:
+    public-get-paths:
+      - /api/v1/adapter/replay/status

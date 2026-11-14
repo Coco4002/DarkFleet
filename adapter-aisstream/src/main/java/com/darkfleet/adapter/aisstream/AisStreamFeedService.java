@@ -189,10 +189,8 @@ public class AisStreamFeedService {
             Map<String, Object> subscription = Map.of(
                     "APIKey", apiKey != null ? apiKey : "",
                     "BoundingBoxes", List.of(
-                            // Primary: Gulf of Finland to Danish Straits
-                            List.of(List.of(53.5, 9.0), List.of(60.8, 30.5)),
-                            // Secondary: Bosphorus & Western Black Sea
-                            List.of(List.of(40.8, 27.5), List.of(44.5, 32.5))
+                            // Gulf of Finland to the Danish straits
+                            List.of(List.of(53.5, 9.0), List.of(60.8, 30.5))
                     ),
                     "FilterMessageTypes", List.of(
                             "PositionReport",
@@ -209,7 +207,7 @@ public class AisStreamFeedService {
     private void sendSubscription(WebSocket ws) {
         String payload = buildSubscriptionPayload();
         ws.sendText(payload, true);
-        log.info("Subscribed to aisstream.io for Baltic (Gulf of Finland -> Danish Straits) and Bosphorus corridors.");
+        log.info("Subscribed to aisstream.io for the Baltic (Gulf of Finland -> Danish straits).");
     }
 
     private void scheduleReconnect(String reason) {

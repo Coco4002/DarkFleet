@@ -4,7 +4,7 @@ import com.darkfleet.common.kafka.DarkFleetTopics;
 import com.darkfleet.common.kafka.JsonSerde;
 import com.darkfleet.common.model.AisSource;
 import com.darkfleet.common.model.NormalizedAisMessage;
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import org.eclipse.paho.client.mqttv3.IMqttDeliveryToken;
