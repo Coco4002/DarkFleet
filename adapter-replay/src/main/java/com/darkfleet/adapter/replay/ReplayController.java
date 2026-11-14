@@ -6,6 +6,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -33,6 +34,8 @@ public class ReplayController {
         return scenarioService.getStatus();
     }
 
+    @PreAuthorize("hasRole('ADMIN')")
+
     @PostMapping("/run-corridor-suite")
     @Operation(summary = "Replay the recorded Baltic & Bosphorus multi-feed corridor scenario suite through Kafka")
     public Map<String, Object> runCorridorSuite() {
@@ -49,6 +52,8 @@ public class ReplayController {
     public List<NormalizedAisMessage> previewCorridorSuite() {
         return scenarioService.buildRecordedCorridorSuite(Instant.now());
     }
+
+    @PreAuthorize("hasRole('ADMIN')")
 
     @PostMapping(value = "/ingest-dma-csv", consumes = MediaType.TEXT_PLAIN_VALUE)
     @Operation(summary = "Parse and replay Danish Maritime Authority (DMA) CSV lines (marked historical = true)")

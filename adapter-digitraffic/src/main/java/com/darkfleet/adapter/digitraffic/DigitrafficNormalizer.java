@@ -4,7 +4,7 @@ import com.darkfleet.common.kafka.JsonSerde;
 import com.darkfleet.common.model.AisMessageType;
 import com.darkfleet.common.model.AisSource;
 import com.darkfleet.common.model.NormalizedAisMessage;
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
@@ -49,7 +49,7 @@ public class DigitrafficNormalizer {
         try {
             String mmsi = feature.hasNonNull("mmsi")
                     ? String.valueOf(feature.get("mmsi").asLong())
-                    : feature.path("properties").path("mmsi").asText(null);
+                    : feature.path("properties").path("mmsi").asString(null);
             if (mmsi == null || mmsi.isBlank()) {
                 return Optional.empty();
             }
@@ -138,16 +138,16 @@ public class DigitrafficNormalizer {
 
         long imoRaw = node.path("imo").asLong(0L);
         String imo = imoRaw > 0 ? String.valueOf(imoRaw) : null;
-        String name = clean(node.path("name").asText(null));
-        String callSign = clean(node.path("callSign").asText(null));
-        Integer shipType = node.hasNonNull("shipType") ? node.path("shipType").asInt() : null;
-        Double draught = null;
-        if (node.hasNonNull("draught")) {
-            double rawDraught = node.path("draught").asDouble();
-            // Digitraffic encodes draught in 1/10th meters (e.g. 125 -> 12.5m)
-            draught = rawDraught > 35.0 ? rawDraught / 10.0 : rawDraught;
-        }
-        String destination = clean(node.path("destination").asText(null));
+        String name = clean(node.path("name").asString(null));
+        String callSign = clean(node.path("callSign").asString(null));
+        // The MQTT stream calls the field "type"; the REST API calls it "shipType". 0 means "not available".
+        JsonNode typeNode = node.hasNonNull("type") ? node.get("type") : node.get("shipType");
+        Integer shipType = typeNode != null && !typeNode.isNull() && typeNode.asInt() > 0 ? typeNode.asInt() : null;
+        // Draught is the raw AIS value in tenths of a metre (39 -> 3.9 m); 0 means "not available".
+        Double draught = node.hasNonNull("draught") && node.path("draught").asDouble() > 0
+                ? node.path("draught").asDouble() / 10.0
+                : null;
+        String destination = clean(node.path("destination").asString(null));
 
         return Optional.of(NormalizedAisMessage.staticReport(
                 mmsi,

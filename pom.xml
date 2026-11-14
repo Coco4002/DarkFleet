@@ -13,6 +13,7 @@
 
     <modules>
         <module>darkfleet-common</module>
+        <module>darkfleet-security</module>
         <module>adapter-aisstream</module>
         <module>adapter-digitraffic</module>
         <module>adapter-replay</module>
@@ -20,13 +21,10 @@
     </modules>
 
     <properties>
-        <java.version>25</java.version>
-        <maven.compiler.source>21</maven.compiler.source>
-        <maven.compiler.target>21</maven.compiler.target>
-        <maven.compiler.release>21</maven.compiler.release>
+        <maven.compiler.release>25</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <spring-boot.version>3.4.3</spring-boot.version>
-        <springdoc.version>2.8.5</springdoc.version>
+        <spring-boot.version>4.1.2</spring-boot.version>
+        <springdoc.version>3.2.0</springdoc.version>
         <paho.version>1.2.5</paho.version>
     </properties>
 
@@ -42,6 +40,11 @@
             <dependency>
                 <groupId>com.darkfleet</groupId>
                 <artifactId>darkfleet-common</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.darkfleet</groupId>
+                <artifactId>darkfleet-security</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
@@ -63,7 +66,7 @@
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-compiler-plugin</artifactId>
-                    <version>3.13.0</version>
+                    <version>3.16.0</version>
                     <configuration>
                         <release>${maven.compiler.release}</release>
                         <parameters>true</parameters>
@@ -72,12 +75,19 @@
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-surefire-plugin</artifactId>
-                    <version>3.5.2</version>
+                    <version>3.6.1</version>
                 </plugin>
                 <plugin>
                     <groupId>org.springframework.boot</groupId>
                     <artifactId>spring-boot-maven-plugin</artifactId>
                     <version>${spring-boot.version}</version>
+                    <executions>
+                        <execution>
+                            <goals>
+                                <goal>repackage</goal>
+                            </goals>
+                        </execution>
+                    </executions>
                 </plugin>
             </plugins>
         </pluginManagement>

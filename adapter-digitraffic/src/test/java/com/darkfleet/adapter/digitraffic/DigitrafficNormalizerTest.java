@@ -60,7 +60,7 @@ class DigitrafficNormalizerTest {
                   "refD": 16,
                   "callSign": "UBBP9",
                   "imo": 9288104,
-                  "shipType": 80
+                  "type": 80
                 }
                 """;
 
@@ -74,5 +74,22 @@ class DigitrafficNormalizerTest {
         assertEquals(80, msg.shipType());
         assertEquals(14.2, msg.draughtMeters(), 0.01);
         assertTrue(msg.isCargoOrTanker());
+    }
+
+    @Test
+    void shouldTreatZeroTypeAndDraughtAsMissingAndScaleSmallDraught() {
+        String withZeros = """
+                {"timestamp": 1762762200000, "name": "EVA 316", "draught": 0, "imo": 7917977, "type": 0}
+                """;
+        NormalizedAisMessage zeros = normalizer.normalizeMqttPayload("vessels-v2/276000001/metadata", withZeros).orElseThrow();
+        assertNull(zeros.shipType());
+        assertNull(zeros.draughtMeters());
+
+        String smallShip = """
+                {"timestamp": 1762762200000, "name": "RIX TERRA", "draught": 30, "imo": 9100188, "shipType": 70}
+                """;
+        NormalizedAisMessage small = normalizer.normalizeMqttPayload("vessels-v2/276000002/metadata", smallShip).orElseThrow();
+        assertEquals(70, small.shipType());
+        assertEquals(3.0, small.draughtMeters(), 0.01);
     }
 }
