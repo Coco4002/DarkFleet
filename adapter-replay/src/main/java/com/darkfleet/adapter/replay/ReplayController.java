@@ -1,68 +1,68 @@
 package com.darkfleet.adapter.replay;
 
-import com.darkfleet.common.model.NormalizedAisMessage;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import org.springframework.http.MediaType;
-import org.springframework.web.bind.annotation.CrossOrigin;
-import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.time.Instant;
+import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 
 @RestController
 @RequestMapping("/api/v1/adapter/replay")
-@CrossOrigin(origins = "*")
-@Tag(name = "DMA Historical CSV & Scenario Replay Adapter", description = "Replays Danish Maritime Authority CSV files and recorded Baltic/Bosphorus scenarios (always marked historical)")
+@Tag(name = "DMA replay adapter",
+        description = "Replays recorded Danish Maritime Authority AIS files into ais.replay (development and tests only)")
 public class ReplayController {
 
-    private final ReplayScenarioService scenarioService;
+    private final ReplayRunService replay;
 
-    public ReplayController(ReplayScenarioService scenarioService) {
-        this.scenarioService = scenarioService;
+    public ReplayController(ReplayRunService replay) {
+        this.replay = replay;
     }
 
     @GetMapping("/status")
-    @Operation(summary = "Get DMA replay adapter status and total historical messages replayed")
-    public Map<String, Object> status() {
-        return scenarioService.getStatus();
+    @Operation(summary = "State and message counters of the current or last replay run")
+    public ReplayRunService.RunStatus status() {
+        return replay.status();
     }
 
     @PreAuthorize("hasRole('ADMIN')")
-
-    @PostMapping("/run-corridor-suite")
-    @Operation(summary = "Replay the recorded Baltic & Bosphorus multi-feed corridor scenario suite through Kafka")
-    public Map<String, Object> runCorridorSuite() {
-        int published = scenarioService.replayRecordedCorridorSuite();
-        return Map.of(
-                "status", "REPLAYED",
-                "historical", true,
-                "messagesPublished", published
-        );
-    }
-
-    @GetMapping("/preview-corridor-suite")
-    @Operation(summary = "Preview the normalized messages in the recorded corridor suite without publishing")
-    public List<NormalizedAisMessage> previewCorridorSuite() {
-        return scenarioService.buildRecordedCorridorSuite(Instant.now());
+    @GetMapping("/files")
+    @Operation(summary = "Replay files available in the data directory (admin)")
+    public List<String> files() throws IOException {
+        return replay.listFiles();
     }
 
     @PreAuthorize("hasRole('ADMIN')")
+    @PostMapping("/runs")
+    @Operation(summary = "Start replaying a file (admin); one run at a time")
+    public ResponseEntity<ReplayRunService.RunStatus> start(@RequestBody ReplayRunService.ReplayRequest request) {
+        return ResponseEntity.status(HttpStatus.ACCEPTED).body(replay.start(request));
+    }
 
-    @PostMapping(value = "/ingest-dma-csv", consumes = MediaType.TEXT_PLAIN_VALUE)
-    @Operation(summary = "Parse and replay Danish Maritime Authority (DMA) CSV lines (marked historical = true)")
-    public Map<String, Object> ingestDmaCsv(@RequestBody String csvContent) {
-        int count = scenarioService.replayCsv(csvContent);
-        return Map.of(
-                "status", "CSV_REPLAYED",
-                "historical", true,
-                "messagesPublished", count
-        );
+    @PreAuthorize("hasRole('ADMIN')")
+    @PostMapping("/runs/cancel")
+    @Operation(summary = "Stop the running replay (admin)")
+    public ReplayRunService.RunStatus cancel() {
+        replay.cancel();
+        return replay.status();
+    }
+
+    @ExceptionHandler(IllegalArgumentException.class)
+    ResponseEntity<Map<String, String>> badRequest(IllegalArgumentException e) {
+        return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+    }
+
+    @ExceptionHandler(IllegalStateException.class)
+    ResponseEntity<Map<String, String>> conflict(IllegalStateException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", e.getMessage()));
     }
 }

@@ -10,6 +10,8 @@ spring:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
 
 darkfleet:
+  feed:
+    health-interval: 30s
   security:
     public-get-paths:
       - /api/v1/adapter/aisstream/status
@@ -17,6 +19,9 @@ darkfleet:
     ws-url: ${DARKFLEET_AISSTREAM_WS_URL:wss://stream.aisstream.io/v0/stream}
     api-key: ${DARKFLEET_AISSTREAM_API_KEY:}
     auto-connect: ${DARKFLEET_AISSTREAM_AUTO_CONNECT:true}
+    # [minLat, minLon, maxLat, maxLon]: Gulf of Finland to the Danish straits
+    bounding-boxes:
+      - [53.5, 9.0, 60.8, 30.5]
 
 springdoc:
   api-docs:

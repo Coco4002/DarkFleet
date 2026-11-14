@@ -1,0 +1,22 @@
+# Timestamp,Type of mobile,MMSI,Latitude,Longitude,Navigational status,ROT,SOG,COG,Heading,IMO,Callsign,Name,Ship type,Cargo type,Width,Length,Type of position fixing device,Draught,Destination,ETA,Data source type,A,B,C,D
+11/11/2026 00:00:00,Base Station,2190064,56.716647,11.518978,Unknown value,,,,,Unknown,Unknown,,Undefined,,,,GPS,,Unknown,,AIS,,,,
+11/11/2026 00:00:00,Base Station,2194006,55.538917,5.033400,Unknown value,,,,,Unknown,Unknown,,Undefined,,,,Surveyed,,Unknown,,AIS,,,,
+11/11/2026 00:00:00,Class A,220343000,57.718218,10.586920,Engaged in fishing,0.0,0.0,8.1,235,Unknown,Unknown,,Undefined,,,,Undefined,,Unknown,,AIS,,,,
+11/11/2026 00:00:00,Class A,220343000,57.718218,10.586920,Engaged in fishing,0.0,0.0,8.1,235,Unknown,Unknown,,Undefined,,,,Undefined,,Unknown,,AIS,,,,
+11/11/2026 00:00:00,AtoN,992111704,54.755228,14.152783,Unknown value,,,,,Unknown,Unknown,AB36,Undefined,,8,8,Surveyed,,Unknown,,AIS,4,4,4,4
+11/11/2026 00:00:00,AtoN,992111923,54.949617,13.083867,Unknown value,,,,,Unknown,Unknown,BALTIC2 WINDFARM SW,Undefined,,12,8,Surveyed,,Unknown,,AIS,4,4,4,8
+11/11/2026 00:00:01,Class B,219029338,55.909495,10.253377,Unknown value,,0.0,,,Unknown,Unknown,,Undefined,,,,Undefined,,Unknown,,AIS,,,,
+11/11/2026 00:00:01,Class B,219029338,55.909495,10.253377,Unknown value,,0.0,,,Unknown,Unknown,,Undefined,,,,Undefined,,Unknown,,AIS,,,,
+11/11/2026 00:00:02,Class A,235108534,91.000000,0.000000,Unknown value,,,,,9683087,2ICI7,KMARIN REASON,Tanker,No additional information,44,250,GPS,8.8,DK SKA,11/11/2026 00:01:00,AIS,202,48,18,26
+11/11/2026 00:00:02,Class A,235108534,91.000000,0.000000,Unknown value,,,,,9683087,2ICI7,KMARIN REASON,Tanker,No additional information,44,250,GPS,8.8,DK SKA,11/11/2026 00:01:00,AIS,202,48,18,26
+11/11/2026 00:00:02,Class A,235108534,91.000000,0.000000,Unknown value,,,,,9683087,2ICI7,KMARIN REASON,Tanker,No additional information,44,250,GPS,8.8,DK SKA,11/11/2026 00:01:00,AIS,202,48,18,26
+11/11/2026 00:00:02,Class B,219000934,57.121007,8.600913,Unknown value,,0.0,,,Unknown,Unknown,,Undefined,,,,Undefined,,Unknown,,AIS,,,,
+11/11/2026 00:00:04,Class A,563326000,57.044070,11.692708,Constrained by her draught,-0.4,12.5,159.4,161,9422196,9V8779,EAGLE KINABALU,Tanker,,42,244,GPS,14.2,PLGDN,13/11/2026 01:00:00,AIS,210,34,24,18
+11/11/2026 00:00:04,Class A,563326000,57.044070,11.692708,Constrained by her draught,-0.4,12.5,159.4,161,9422196,9V8779,EAGLE KINABALU,Tanker,,42,244,GPS,14.2,PLGDN,13/11/2026 01:00:00,AIS,210,34,24,18
+11/11/2026 00:00:07,Class A,613003743,54.648430,10.868398,Under way using engine,0.0,10.1,302.3,303,9284726,TJMC147,BONIFACY,Tanker,,32,180,GPS,12.1,MERSIN FOR ORDER,28/11/2026 09:00:00,AIS,152,28,21,11
+11/11/2026 00:00:18,Class A,265074000,91.000000,0.000000,Unknown value,,,,,Unknown,SLID,BRAVIK,Fishing,,5,16,Chayka,2.5,"CPA0,5",,AIS,13,3,2,3
+11/11/2026 00:00:23,Class A,219032994,91.000000,0.000000,Unknown value,,,,,9957828,OZVU2,WIND PEAK,Cargo,,59,152,GPS,8.2,"ESBJERG,DK",30/10/2027 16:15:00,AIS,27,125,45,14
+11/11/2026 00:00:36,Class A,265074000,57.617815,11.761557,Engaged in fishing,0.0,0.0,216.9,235,Unknown,SLID,BRAVIK,Fishing,,5,16,Chayka,2.5,"CPA0,5",,AIS,13,3,2,3
+11/11/2026 00:00:39,Class A,219032994,55.476345,8.419240,Moored,0.0,0.0,242.2,59,9957828,OZVU2,WIND PEAK,Cargo,,59,152,GPS,8.2,"ESBJERG,DK",30/10/2027 16:15:00,AIS,27,125,45,14
+11/11/2026 00:00:47,Class A,265074000,57.617808,11.761557,Engaged in fishing,0.0,0.0,185.1,235,Unknown,SLID,BRAVIK,Fishing,,5,16,Chayka,2.5,"CPA0,5",,AIS,13,3,2,3
+11/11/2026 00:00:56,Class A,265074000,57.617803,11.761555,Engaged in fishing,0.0,0.0,235.7,235,Unknown,SLID,BRAVIK,Fishing,,5,16,Chayka,2.5,"CPA0,5",,AIS,13,3,2,3
