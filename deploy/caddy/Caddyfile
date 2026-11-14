@@ -1,0 +1,16 @@
+{$DARKFLEET_SITE_ADDRESS::80} {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	# Public API routes (map-gateway) and analyst routes (vessel-intelligence) are added
+	# here as those services are built. Internal services are never exposed directly.
+
+	root * /srv
+	file_server
+}
