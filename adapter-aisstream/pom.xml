@@ -23,6 +23,10 @@
             <artifactId>darkfleet-security</artifactId>
         </dependency>
         <dependency>
+            <groupId>com.darkfleet</groupId>
+            <artifactId>darkfleet-adapter-support</artifactId>
+        </dependency>
+        <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-webmvc</artifactId>
         </dependency>

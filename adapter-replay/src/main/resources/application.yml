@@ -19,3 +19,6 @@ darkfleet:
   security:
     public-get-paths:
       - /api/v1/adapter/replay/status
+  replay:
+    # Directory with DMA files (aisdk-YYYY-MM-DD.zip or .csv) from http://aisdata.ais.dk
+    data-dir: ${DARKFLEET_REPLAY_DATA_DIR:/data/dma}

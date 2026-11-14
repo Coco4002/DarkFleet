@@ -14,6 +14,7 @@
     <modules>
         <module>darkfleet-common</module>
         <module>darkfleet-security</module>
+        <module>darkfleet-adapter-support</module>
         <module>adapter-aisstream</module>
         <module>adapter-digitraffic</module>
         <module>adapter-replay</module>
@@ -45,6 +46,11 @@
             <dependency>
                 <groupId>com.darkfleet</groupId>
                 <artifactId>darkfleet-security</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.darkfleet</groupId>
+                <artifactId>darkfleet-adapter-support</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>

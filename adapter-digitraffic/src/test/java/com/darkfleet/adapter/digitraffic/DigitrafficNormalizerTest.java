@@ -86,10 +86,41 @@ class DigitrafficNormalizerTest {
         assertNull(zeros.draughtMeters());
 
         String smallShip = """
-                {"timestamp": 1762762200000, "name": "RIX TERRA", "draught": 30, "imo": 9100188, "shipType": 70}
+                {"timestamp": 1762762200000, "name": "RIX TERRA", "draught": 30, "imo": 9100188, "type": 70}
                 """;
         NormalizedAisMessage small = normalizer.normalizeMqttPayload("vessels-v2/276000002/metadata", smallShip).orElseThrow();
         assertEquals(70, small.shipType());
         assertEquals(3.0, small.draughtMeters(), 0.01);
+    }
+
+    @Test
+    void shouldReadDimensionsAndPackedEtaFromMqttMetadata() {
+        // Real payload from the Digitraffic MQTT stream (14 November 2026)
+        String payload = """
+                {"callSign": "ESTF", "destination": "KUNDA  HUNDIPEA", "draught": 40, "eta": 725184,
+                 "imo": 7917977, "name": "EVA 316", "posType": 3, "refA": 10, "refB": 50, "refC": 6, "refD": 7,
+                 "timestamp": 1794671879757, "type": 0}
+                """;
+        NormalizedAisMessage msg = normalizer.normalizeMqttPayload("vessels-v2/276000003/metadata", payload).orElseThrow();
+        assertEquals(60, msg.lengthMeters());
+        assertEquals(13, msg.beamMeters());
+        assertEquals(java.time.Instant.parse("2026-11-02T03:00:00Z"), msg.eta());
+        assertEquals(4.0, msg.draughtMeters(), 0.01);
+        assertNull(msg.shipType());
+    }
+
+    @Test
+    void dropsLocationsWithoutTimeAndMapsNotAvailableToEmpty() {
+        assertTrue(normalizer.normalizeMqttPayload("vessels-v2/230048000/location",
+                "{\"lat\": 60.1, \"lon\": 25.0, \"sog\": 3.0}").isEmpty(), "no time: dropped");
+
+        NormalizedAisMessage msg = normalizer.normalizeMqttPayload("vessels-v2/230048000/location",
+                "{\"time\": 1794671602, \"lat\": 60.1, \"lon\": 25.0, \"sog\": 102.3, \"cog\": 360, \"heading\": 511, \"navStat\": 15}")
+                .orElseThrow();
+        assertNull(msg.sogKnots());
+        assertNull(msg.cogDegrees());
+        assertNull(msg.headingDegrees());
+        assertNull(msg.navStatus());
+        assertTrue(normalizer.normalizeMqttPayload("vessels-v2/notanmmsi/location", "{}").isEmpty());
     }
 }
