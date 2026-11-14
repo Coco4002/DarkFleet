@@ -1,173 +1,111 @@
 package com.darkfleet.adapter.digitraffic;
 
 import com.darkfleet.common.kafka.JsonSerde;
+import com.darkfleet.common.model.AisEta;
 import com.darkfleet.common.model.AisMessageType;
 import com.darkfleet.common.model.AisSource;
 import com.darkfleet.common.model.NormalizedAisMessage;
-import tools.jackson.databind.JsonNode;
 import org.springframework.stereotype.Component;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.JsonNode;
 
 import java.time.Instant;
 import java.util.Optional;
 
 /**
- * Normalizes Fintraffic Digitraffic AIS payloads (MQTT vessels-v2/+/location, vessels-v2/+/metadata,
- * and REST GeoJSON Feature location payloads).
- * Credit: Fintraffic / digitraffic.fi (CC BY 4.0).
+ * Turns Digitraffic MQTT messages (topics vessels-v2/{mmsi}/location and vessels-v2/{mmsi}/metadata)
+ * into {@link NormalizedAisMessage}s. A message without time or (for locations) coordinates is
+ * dropped; values AIS marks as "not available" become null.
+ * Source: Fintraffic / digitraffic.fi, licence CC BY 4.0.
  */
 @Component
 public class DigitrafficNormalizer {
 
-    public Optional<NormalizedAisMessage> normalizeMqttPayload(String mqttTopic, String payloadJson) {
-        if (mqttTopic == null || payloadJson == null || payloadJson.isBlank()) {
+    public Optional<NormalizedAisMessage> normalizeMqttPayload(String topic, String payloadJson) {
+        String[] parts = topic.split("/");
+        if (parts.length != 3 || !parts[1].matches("\\d{9}")) {
             return Optional.empty();
         }
-        String[] parts = mqttTopic.split("/");
-        if (parts.length < 3) {
-            return Optional.empty();
-        }
-        String mmsi = parts[1].trim();
-        String messageCategory = parts[2].trim();
-
+        JsonNode node;
         try {
-            JsonNode root = JsonSerde.mapper().readTree(payloadJson);
-            if ("location".equalsIgnoreCase(messageCategory)) {
-                return parseLocationNode(mmsi, root);
-            } else if ("metadata".equalsIgnoreCase(messageCategory)) {
-                return parseMetadataNode(mmsi, root);
-            }
-            return Optional.empty();
-        } catch (Exception e) {
+            node = JsonSerde.mapper().readTree(payloadJson);
+        } catch (JacksonException e) {
             return Optional.empty();
         }
+        return switch (parts[2]) {
+            case "location" -> location(parts[1], node);
+            case "metadata" -> metadata(parts[1], node);
+            default -> Optional.empty();
+        };
     }
 
-    public Optional<NormalizedAisMessage> normalizeGeoJsonFeature(JsonNode feature) {
-        if (feature == null || !feature.isObject()) {
+    /** Location messages carry {@code time} in epoch seconds. */
+    private static Optional<NormalizedAisMessage> location(String mmsi, JsonNode node) {
+        Long time = optionalLong(node, "time");
+        Double lat = optionalDouble(node, "lat");
+        Double lon = optionalDouble(node, "lon");
+        if (time == null || lat == null || lon == null) {
             return Optional.empty();
         }
-        try {
-            String mmsi = feature.hasNonNull("mmsi")
-                    ? String.valueOf(feature.get("mmsi").asLong())
-                    : feature.path("properties").path("mmsi").asString(null);
-            if (mmsi == null || mmsi.isBlank()) {
-                return Optional.empty();
-            }
-            JsonNode coords = feature.path("geometry").path("coordinates");
-            if (!coords.isArray() || coords.size() < 2) {
-                return Optional.empty();
-            }
-            double lon = coords.get(0).asDouble();
-            double lat = coords.get(1).asDouble();
-
-            JsonNode props = feature.path("properties");
-            long tsMillis = props.path("timestampExternal").asLong(System.currentTimeMillis());
-            Instant eventTime = Instant.ofEpochMilli(tsMillis);
-
-            double sog = props.path("sog").asDouble(0.0);
-            double cog = props.path("cog").asDouble(0.0);
-            Double heading = props.hasNonNull("heading") && props.path("heading").asInt(511) != 511
-                    ? props.path("heading").asDouble()
-                    : null;
-            Integer navStat = props.hasNonNull("navStat") ? props.path("navStat").asInt() : null;
-
-            NormalizedAisMessage msg = NormalizedAisMessage.positionReport(
-                    mmsi,
-                    eventTime,
-                    lat,
-                    lon,
-                    sog,
-                    cog,
-                    heading,
-                    navStat,
-                    AisSource.DIGITRAFFIC,
-                    false
-            );
-            return msg.hasValidCoordinates() ? Optional.of(msg) : Optional.empty();
-        } catch (Exception e) {
-            return Optional.empty();
-        }
-    }
-
-    private Optional<NormalizedAisMessage> parseLocationNode(String mmsi, JsonNode node) {
-        if (!node.hasNonNull("lat") || !node.hasNonNull("lon")) {
-            return Optional.empty();
-        }
-        double lat = node.path("lat").asDouble();
-        double lon = node.path("lon").asDouble();
-        long timeValue = node.path("time").asLong(0L);
-        Instant eventTime = timeValue > 100_000_000_000L
-                ? Instant.ofEpochMilli(timeValue)
-                : (timeValue > 0 ? Instant.ofEpochSecond(timeValue) : Instant.now());
-
-        double sog = node.path("sog").asDouble(0.0);
-        double cog = node.path("cog").asDouble(0.0);
-        Double heading = node.hasNonNull("heading") && node.path("heading").asInt(511) != 511
-                ? node.path("heading").asDouble()
-                : null;
-        Integer navStat = node.hasNonNull("navStat") ? node.path("navStat").asInt() : null;
-
+        Double sog = optionalDouble(node, "sog");
+        Double cog = optionalDouble(node, "cog");
+        Integer heading = optionalInt(node, "heading");
+        Integer navStatus = optionalInt(node, "navStat");
         NormalizedAisMessage msg = new NormalizedAisMessage(
-                mmsi,
-                eventTime,
-                lat,
-                lon,
-                sog,
-                cog,
-                heading,
-                navStat,
-                AisSource.DIGITRAFFIC,
-                AisMessageType.POSITION_REPORT,
-                Instant.now(),
-                false,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null
-        );
+                mmsi, Instant.ofEpochSecond(time), lat, lon,
+                sog != null && sog < 102.3 ? sog : null,                         // 102.3 = not available
+                cog != null && cog < 360 ? cog : null,                           // 360 = not available
+                heading != null && heading < 360 ? heading.doubleValue() : null, // 511 = not available
+                navStatus != null && navStatus < 15 ? navStatus : null,          // 15 = not defined
+                AisSource.DIGITRAFFIC, AisMessageType.POSITION_REPORT, Instant.now(), false,
+                null, null, null, null, null, null, null, null, null);
         return msg.hasValidCoordinates() ? Optional.of(msg) : Optional.empty();
     }
 
-    private Optional<NormalizedAisMessage> parseMetadataNode(String mmsi, JsonNode node) {
-        long ts = node.path("timestamp").asLong(0L);
-        Instant eventTime = ts > 100_000_000_000L
-                ? Instant.ofEpochMilli(ts)
-                : (ts > 0 ? Instant.ofEpochSecond(ts) : Instant.now());
-
-        long imoRaw = node.path("imo").asLong(0L);
-        String imo = imoRaw > 0 ? String.valueOf(imoRaw) : null;
-        String name = clean(node.path("name").asString(null));
-        String callSign = clean(node.path("callSign").asString(null));
-        // The MQTT stream calls the field "type"; the REST API calls it "shipType". 0 means "not available".
-        JsonNode typeNode = node.hasNonNull("type") ? node.get("type") : node.get("shipType");
-        Integer shipType = typeNode != null && !typeNode.isNull() && typeNode.asInt() > 0 ? typeNode.asInt() : null;
-        // Draught is the raw AIS value in tenths of a metre (39 -> 3.9 m); 0 means "not available".
-        Double draught = node.hasNonNull("draught") && node.path("draught").asDouble() > 0
-                ? node.path("draught").asDouble() / 10.0
-                : null;
-        String destination = clean(node.path("destination").asString(null));
-
+    /**
+     * Metadata messages carry {@code timestamp} in epoch milliseconds, the ship type as {@code type},
+     * draught in tenths of a metre, antenna distances refA..refD and the ETA as the packed AIS field.
+     */
+    private static Optional<NormalizedAisMessage> metadata(String mmsi, JsonNode node) {
+        Long timestamp = optionalLong(node, "timestamp");
+        if (timestamp == null) {
+            return Optional.empty();
+        }
+        Instant time = Instant.ofEpochMilli(timestamp);
+        Long imo = optionalLong(node, "imo");
+        Integer shipType = optionalInt(node, "type");
+        Integer draughtTenths = optionalInt(node, "draught");
+        Long eta = optionalLong(node, "eta");
         return Optional.of(NormalizedAisMessage.staticReport(
-                mmsi,
-                eventTime,
-                AisSource.DIGITRAFFIC,
-                false,
-                imo,
-                name,
-                callSign,
-                shipType,
-                draught,
-                destination
-        ));
+                mmsi, time, AisSource.DIGITRAFFIC, false,
+                imo != null && imo > 0 ? String.valueOf(imo) : null,                    // 0 = no IMO
+                clean(node.path("name").asString(null)),
+                clean(node.path("callSign").asString(null)),
+                shipType != null && shipType > 0 ? shipType : null,                     // 0 = not available
+                draughtTenths != null && draughtTenths > 0 ? draughtTenths / 10.0 : null, // 0 = not available
+                clean(node.path("destination").asString(null)),
+                NormalizedAisMessage.dimension(optionalInt(node, "refA"), optionalInt(node, "refB")),
+                NormalizedAisMessage.dimension(optionalInt(node, "refC"), optionalInt(node, "refD")),
+                eta != null ? AisEta.fromPacked(eta, time) : null));
     }
 
-    private String clean(String value) {
+    private static String clean(String value) {
         if (value == null) {
             return null;
         }
         String trimmed = value.trim();
         return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private static Double optionalDouble(JsonNode node, String field) {
+        return node.path(field).isNumber() ? node.get(field).asDouble() : null;
+    }
+
+    private static Integer optionalInt(JsonNode node, String field) {
+        return node.path(field).isNumber() ? node.get(field).asInt() : null;
+    }
+
+    private static Long optionalLong(JsonNode node, String field) {
+        return node.path(field).isNumber() ? node.get(field).asLong() : null;
     }
 }
