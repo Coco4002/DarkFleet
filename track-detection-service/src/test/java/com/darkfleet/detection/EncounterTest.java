@@ -68,29 +68,6 @@ class EncounterTest {
         }
     }
 
-    @Test
-    void inReplayAnEncounterClosesWhileOnlyOtherVesselsKeepReporting() {
-        try (Harness h = new Harness(DetectionMode.REPLAY, START)) {
-            h.tanker(A, com.darkfleet.common.model.AisSource.DMA_REPLAY, "9312456", 14.5);
-            h.tanker(B, com.darkfleet.common.model.AisSource.DMA_REPLAY, "9074729", 6.0);
-            for (int i = 0; i <= 125; i += 2) {
-                Instant at = START.plus(Duration.ofMinutes(i));
-                h.position(A, com.darkfleet.common.model.AisSource.DMA_REPLAY, at, 59.9, 26.0, 0.5, 90.0, 1);
-                h.position(B, com.darkfleet.common.model.AisSource.DMA_REPLAY, at, 59.9, 26.002, 0.3, 90.0, 1);
-                h.tick();
-            }
-            assertEquals(1, encounters(h).size());
-            for (int i = 126; i <= 170; i++) { // the pair is silent; someone else keeps the replay going
-                h.position("219000001", com.darkfleet.common.model.AisSource.DMA_REPLAY, START.plus(Duration.ofMinutes(i)),
-                        55.0, 11.0, 10.0, 90.0, 0);
-                h.tick();
-            }
-            List<Detection> closed = encounters(h);
-            assertEquals(1, closed.size());
-            assertEquals(DetectionStatus.CLOSED, closed.getFirst().status());
-        }
-    }
-
     private static List<Detection> encounters(Harness h) {
         return h.detections().stream().filter(d -> d.type() == DetectionType.POTENTIAL_ENCOUNTER).toList();
     }

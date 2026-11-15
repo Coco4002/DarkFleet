@@ -54,8 +54,7 @@ public class CoverageProcessor implements Processor<String, CoverageTick, String
             return;
         }
         Instant hour = tick.time().truncatedTo(ChronoUnit.HOURS);
-        Instant now = clock.now(context);
-        if (now != null && !hour.isAfter(lastCompleteHour(now))) {
+        if (!hour.isAfter(lastCompleteHour(clock.now(context)))) {
             return; // too late: that hour is complete
         }
         CellCoverage cell = cells.get(record.key());

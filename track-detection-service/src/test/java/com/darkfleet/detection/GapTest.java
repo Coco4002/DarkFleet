@@ -178,7 +178,6 @@ class GapTest {
             for (int i = 1; i <= 70; i++) {
                 h.position("219000001", AisSource.DMA_REPLAY, START.plus(Duration.ofMinutes(i)), 55.0, 11.0, 10.0, 90.0, 0);
             }
-            h.tick();
             List<Detection> detections = h.detections();
             assertEquals(1, detections.size());
             assertEquals(DetectionType.UNEXPLAINED_GAP, detections.getFirst().type());

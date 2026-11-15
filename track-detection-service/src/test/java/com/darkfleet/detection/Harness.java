@@ -136,11 +136,6 @@ final class Harness implements AutoCloseable {
         }
     }
 
-    /** Replay: lets the processors look at the replay clock (they do so every real second). */
-    void tick() {
-        driver.advanceWallClockTime(Duration.ofSeconds(1));
-    }
-
     /** Coverage history of a cell as published at {@code hourStart}. */
     void coverAt(double lat, double lon, Instant hourStart) {
         String cell = Grid.cell(lat, lon);

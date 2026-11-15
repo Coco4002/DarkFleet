@@ -10,7 +10,6 @@ import com.darkfleet.common.model.NormalizedAisMessage;
 import com.darkfleet.common.model.TrackPoint;
 import com.darkfleet.common.model.VesselStatic;
 import com.darkfleet.detection.DetectionClock;
-import com.darkfleet.detection.DetectionMode;
 import com.darkfleet.detection.DetectionProperties;
 import com.darkfleet.detection.Lookups;
 import com.darkfleet.detection.coverage.CoverageTick;
@@ -78,12 +77,6 @@ public class VesselProcessor implements Processor<String, NormalizedAisMessage, 
         this.context = context;
         this.vessels = context.getStateStore(STORE);
         this.lookups = new Lookups(context, properties);
-        if (properties.mode() == DetectionMode.REPLAY) {
-            // after a restart, replayed time resumes where the stored vessels left it
-            try (KeyValueIterator<String, VesselState> iterator = vessels.all()) {
-                iterator.forEachRemaining(entry -> clock.observed(entry.value.lastHeard()));
-            }
-        }
         clock.schedule(context, this::check);
     }
 
@@ -94,7 +87,6 @@ public class VesselProcessor implements Processor<String, NormalizedAisMessage, 
                 || message.messageType() == AisMessageType.POSITION_REPORT && !message.hasValidCoordinates()) {
             return;
         }
-        clock.observed(message.eventTime());
         String mmsi = message.mmsi();
         VesselState vessel = vessels.get(mmsi);
         if (vessel == null) {
