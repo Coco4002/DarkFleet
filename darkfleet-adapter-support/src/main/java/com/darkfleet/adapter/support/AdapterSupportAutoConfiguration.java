@@ -4,14 +4,12 @@ import com.darkfleet.common.kafka.DarkFleetTopics;
 import com.darkfleet.common.kafka.JsonSerde;
 import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.producer.ProducerConfig;
-import org.apache.kafka.common.config.TopicConfig;
 import org.apache.kafka.common.serialization.StringSerializer;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.context.annotation.Bean;
-import org.springframework.kafka.config.TopicBuilder;
 import org.springframework.kafka.core.DefaultKafkaProducerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
 
@@ -27,9 +25,6 @@ import java.util.Map;
  */
 @AutoConfiguration(beforeName = "org.springframework.boot.kafka.autoconfigure.KafkaAutoConfiguration")
 public class AdapterSupportAutoConfiguration {
-
-    private static final String TWO_DAYS_MS = String.valueOf(Duration.ofHours(48).toMillis());
-    private static final String ONE_DAY_MS = String.valueOf(Duration.ofDays(1).toMillis());
 
     @Bean
     @ConditionalOnMissingBean(name = "darkFleetKafkaTemplate")
@@ -50,22 +45,17 @@ public class AdapterSupportAutoConfiguration {
 
     @Bean
     public NewTopic aisRawTopic() {
-        return TopicBuilder.name(DarkFleetTopics.AIS_RAW).partitions(6).replicas(1)
-                .config(TopicConfig.RETENTION_MS_CONFIG, TWO_DAYS_MS).build();
+        return DarkFleetTopics.newTopic(DarkFleetTopics.AIS_RAW);
     }
 
     @Bean
     public NewTopic aisReplayTopic() {
-        return TopicBuilder.name(DarkFleetTopics.AIS_REPLAY).partitions(6).replicas(1)
-                .config(TopicConfig.RETENTION_MS_CONFIG, TWO_DAYS_MS).build();
+        return DarkFleetTopics.newTopic(DarkFleetTopics.AIS_REPLAY);
     }
 
     @Bean
     public NewTopic feedHealthTopic() {
-        return TopicBuilder.name(DarkFleetTopics.FEED_HEALTH).partitions(1).replicas(1)
-                .config(TopicConfig.CLEANUP_POLICY_CONFIG,
-                        TopicConfig.CLEANUP_POLICY_COMPACT + "," + TopicConfig.CLEANUP_POLICY_DELETE)
-                .config(TopicConfig.RETENTION_MS_CONFIG, ONE_DAY_MS).build();
+        return DarkFleetTopics.newTopic(DarkFleetTopics.FEED_HEALTH);
     }
 
     @Bean(destroyMethod = "close")

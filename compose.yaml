@@ -1,7 +1,7 @@
 # DarkFleet stack: the same file runs locally and on the server.
 #   cp .env.example .env    # fill in values
 #   docker compose up -d --build
-# Replay adapter (development and tests only):  docker compose --profile replay up -d
+# Replay adapter and replay detection (development and tests only):  docker compose --profile replay up -d
 name: darkfleet
 
 x-logging: &logging
@@ -145,6 +145,39 @@ services:
       - ./data/dma:/data/dma:ro
     ports:
       - "127.0.0.1:8083:8083"
+
+  track-detection:
+    <<: *service
+    build:
+      context: .
+      args:
+        MODULE: track-detection-service
+    image: ${DARKFLEET_IMAGE_PREFIX:-darkfleet-}track-detection-service:${DARKFLEET_TAG:-dev}
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    ports:
+      - "127.0.0.1:8084:8084"
+
+  # Detection over replayed data: reads ais.replay, writes the replay.* topics.
+  track-detection-replay:
+    <<: *service
+    profiles: [replay]
+    build:
+      context: .
+      args:
+        MODULE: track-detection-service
+    image: ${DARKFLEET_IMAGE_PREFIX:-darkfleet-}track-detection-service:${DARKFLEET_TAG:-dev}
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      SPRING_PROFILES_ACTIVE: replay
+    ports:
+      - "127.0.0.1:8085:8084"
 
 volumes:
   kafka-data:

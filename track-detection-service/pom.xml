@@ -11,20 +11,12 @@
     </parent>
 
     <artifactId>track-detection-service</artifactId>
-    <name>DarkFleet Core Server 1 — Track &amp; Detection Streaming Service</name>
+    <name>DarkFleet Track &amp; Detection</name>
 
     <dependencies>
         <dependency>
             <groupId>com.darkfleet</groupId>
             <artifactId>darkfleet-common</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.darkfleet</groupId>
-            <artifactId>darkfleet-security</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-webmvc</artifactId>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -35,8 +27,12 @@
             <artifactId>kafka-streams</artifactId>
         </dependency>
         <dependency>
-            <groupId>org.springdoc</groupId>
-            <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+            <groupId>com.uber</groupId>
+            <artifactId>h3</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-webmvc</artifactId>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -45,6 +41,11 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.kafka</groupId>
+            <artifactId>kafka-streams-test-utils</artifactId>
             <scope>test</scope>
         </dependency>
     </dependencies>

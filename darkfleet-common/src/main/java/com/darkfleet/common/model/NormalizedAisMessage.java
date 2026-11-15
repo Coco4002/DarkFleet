@@ -141,14 +141,6 @@ public record NormalizedAisMessage(
     }
 
     /**
-     * Idempotent deduplication key per MMSI, source, messageType, and 1-second timestamp bucket.
-     */
-    @JsonIgnore
-    public String dedupKey() {
-        return mmsi + ":" + source.name() + ":" + messageType.name() + ":" + eventTime.getEpochSecond();
-    }
-
-    /**
      * The same message with its ingestion time cleared. Two reports of the same transmission
      * received separately are equal by this value; any difference in content makes them unequal.
      */

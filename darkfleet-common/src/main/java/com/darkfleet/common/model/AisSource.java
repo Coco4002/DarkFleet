@@ -1,7 +1,7 @@
 package com.darkfleet.common.model;
 
 public enum AisSource {
-    AISSTREAM("aisstream.io", "Live AIS WebSocket (Baltic + Bosphorus)"),
+    AISSTREAM("aisstream.io", "Live AIS WebSocket (Baltic)"),
     DIGITRAFFIC("Fintraffic Digitraffic", "Live AIS MQTT/REST (Gulf of Finland, CC BY 4.0: Fintraffic / digitraffic.fi)"),
     DMA_REPLAY("Danish Maritime Authority / Replay", "Historical AIS CSV replay (marked historical)");
 
