@@ -2,22 +2,50 @@ server:
   port: ${SERVER_PORT:8084}
 
 spring:
-  config:
-    import: optional:classpath:darkfleet-security.yml
   application:
     name: track-detection-service
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    streams:
+      application-id: darkfleet-track-detection
+      properties:
+        processing.guarantee: exactly_once_v2
+        # A message that can't be read is logged and skipped instead of stopping detection.
+        deserialization.exception.handler: org.apache.kafka.streams.errors.LogAndContinueExceptionHandler
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: always
 
 darkfleet:
-  kafka-streams:
-    enabled: ${DARKFLEET_KAFKA_STREAMS_ENABLED:false}
-    application-id: darkfleet-track-detection-streams
-  kafka-listener:
-    enabled: ${DARKFLEET_KAFKA_LISTENER_ENABLED:false}
-
-springdoc:
-  api-docs:
-    path: /v3/api-docs
-  swagger-ui:
-    path: /swagger-ui.html
+  detection:
+    mode: live
+    check-interval: 1m
+    feed-stale-after: 2m
+    max-clock-skew: 5m
+    track-point-interval: 1m
+    track-turn-degrees: 20
+    track-speed-change-knots: 3
+    static-refresh: 24h
+    forget-after: 48h
+    episode-break: 30m
+    coverage-grace: 10m
+    # In force until an analyst approves a rule set (rules.approved). Encounter values follow
+    # Global Fishing Watch's published encounter definition (500 m, below 2 kn, at least 2 h).
+    baseline-rules:
+      version: 0
+      gap-minutes: 60
+      coverage-min-positions: 5
+      port-min-stopped-vessels: 5
+      loitering-max-speed-knots: 3.0
+      loitering-min-minutes: 120
+      encounter-max-distance-meters: 500
+      encounter-max-speed-knots: 2.0
+      encounter-min-minutes: 120
+      identity-window-hours: 24
+      draught-change-meters: 0.4

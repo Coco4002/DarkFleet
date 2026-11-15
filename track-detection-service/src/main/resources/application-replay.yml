@@ -1,0 +1,9 @@
+# Replay mode: reads ais.replay, writes the replay.* topics, keeps time by the replayed messages.
+spring:
+  kafka:
+    streams:
+      application-id: darkfleet-track-detection-replay
+
+darkfleet:
+  detection:
+    mode: replay
