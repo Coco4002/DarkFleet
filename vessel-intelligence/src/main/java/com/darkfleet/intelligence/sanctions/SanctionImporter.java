@@ -119,6 +119,11 @@ public class SanctionImporter {
                     SELECT vessels FROM sanction_import WHERE status = 'IMPORTED' ORDER BY id DESC LIMIT 1""",
                     (rs, i) -> rs.getInt(1)).stream().findFirst().orElse(null);
             int vessels = parsed.listings().size();
+            long distinct = parsed.listings().stream().map(Listing::id).distinct().count();
+            if (distinct != vessels) {
+                // a broken export could repeat rows and pass the size check below with far fewer vessels
+                throw new IOException((vessels - distinct) + " rows repeat an entity id; the file looks broken");
+            }
             if (vessels == 0 || previous != null && vessels < previous * properties.minShare()) {
                 throw new IOException("Only " + vessels + " vessels where the last import had " + previous
                         + "; the file looks truncated");

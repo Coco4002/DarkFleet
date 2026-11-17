@@ -68,5 +68,12 @@ class SanctionApiTest extends IntegrationTest {
         mvc.perform(get(SERVICE_KEY, "/api/v1/sanctions/status"))
                 .andExpect(jsonPath("$.lastAttempt.status").value("FAILED"))
                 .andExpect(jsonPath("$.lastSuccess.status").value("UNCHANGED"));
+
+        // as many rows as before, but all the same vessel: refused too
+        var repeated = new SanctionImporter(
+                new SanctionsProperties("classpath:sanctions/repeated.csv", Duration.ofHours(24), 0.5),
+                jdbc, transaction, audit, Clock.systemUTC());
+        assertEquals(SanctionImporter.Status.FAILED, repeated.importList("admin").status());
+        assertEquals(4L, jdbc.queryForObject("SELECT count(*) FROM sanction", Long.class));
     }
 }

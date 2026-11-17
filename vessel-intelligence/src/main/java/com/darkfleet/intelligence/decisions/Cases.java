@@ -155,11 +155,15 @@ public class Cases {
         if (!"OPEN".equals(before.summary().status())) {
             throw ApiException.conflict("The case is already closed");
         }
-        jdbc.update("""
+        // only an open case is closed: of two analysts closing it at once, the second gets 409
+        int closed = jdbc.update("""
                 UPDATE vessel_case SET status = 'CLOSED', closed_by = :by, closed_at = :at, close_note = :note,
                                        updated_at = now()
-                WHERE id = :id""", new MapSqlParameterSource("id", id).addValue("by", closedBy)
+                WHERE id = :id AND status = 'OPEN'""", new MapSqlParameterSource("id", id).addValue("by", closedBy)
                 .addValue("at", Timestamp.from(clock.instant())).addValue("note", note.strip()));
+        if (closed == 0) {
+            throw ApiException.conflict("The case is already closed");
+        }
         CaseDetail after = get(id);
         audit.record(closedBy, "CLOSE", "CASE", id.toString(), before.summary(), after.summary());
         return after;
