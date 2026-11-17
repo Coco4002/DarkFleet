@@ -147,6 +147,22 @@ class IngestTest extends IntegrationTest {
         assertEquals(0L, jdbc.queryForObject("SELECT count(*) FROM detection WHERE detection_id = 'missing-fields'", Long.class));
     }
 
+    @Test
+    void messagesTheDatabaseRefusesAreSkippedWithoutHoldingUpTheOthers() {
+        String mmsi = "230000041";
+        // PostgreSQL text can't hold a NUL character; AIS text fields come from radio and may carry one
+        VesselStatic refused = staticReport(mmsi, T0, "BAD\u0000NAME", "ARCTIC", 250);
+        VesselStatic fine = staticReport(mmsi, T0.plusSeconds(60), "GOOD NAME", "ARCTIC", 250);
+
+        sendRaw(DarkFleetTopics.VESSEL_STATIC, mmsi, "null".getBytes(StandardCharsets.UTF_8));
+        send(DarkFleetTopics.VESSEL_STATIC, mmsi, refused);
+        send(DarkFleetTopics.VESSEL_STATIC, mmsi, fine);
+
+        awaitCount(1, "SELECT count(*) FROM vessel WHERE mmsi = ? AND name = 'GOOD NAME'", mmsi);
+        assertEquals(0L, jdbc.queryForObject(
+                "SELECT count(*) FROM identity_report WHERE mmsi = ? AND name LIKE 'BAD%'", Long.class, mmsi));
+    }
+
     static TrackPoint point(String mmsi, Instant time) {
         return new TrackPoint(mmsi, time, 60.0, 25.0, 11.5, 270.0, 268.0, 0, AisSource.DIGITRAFFIC, CELL);
     }

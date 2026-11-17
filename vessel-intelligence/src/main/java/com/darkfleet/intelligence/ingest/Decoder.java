@@ -11,8 +11,8 @@ import java.util.List;
 
 /**
  * Reads the JSON records of a batch into the shared message types. A record that can't be read
- * (malformed JSON, a required field missing) is logged and skipped, so one bad message never blocks
- * the topic; retrying it would fail the same way forever.
+ * (malformed JSON, a required field missing, a JSON {@code null}) is logged and skipped, so one bad
+ * message never blocks the topic; retrying it would fail the same way forever.
  */
 final class Decoder {
 
@@ -28,7 +28,13 @@ final class Decoder {
                 continue;
             }
             try {
-                decoded.add(JsonSerde.mapper().readValue(record.value(), type));
+                T value = JsonSerde.mapper().readValue(record.value(), type);
+                if (value == null) {
+                    log.warn("Skipping null {} at {}-{} offset {}", type.getSimpleName(), record.topic(),
+                            record.partition(), record.offset());
+                    continue;
+                }
+                decoded.add(value);
             } catch (JacksonException e) {
                 log.warn("Skipping unreadable {} at {}-{} offset {}: {}", type.getSimpleName(), record.topic(),
                         record.partition(), record.offset(), e.getOriginalMessage());

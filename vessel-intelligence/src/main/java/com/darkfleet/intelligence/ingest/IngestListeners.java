@@ -9,16 +9,24 @@ import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Function;
 
 /**
  * Consumes what Track &amp; Detection publishes, one batch at a time. A batch is stored in one
  * transaction and its offsets are committed only after that, so a crash means the batch comes again;
  * the stores make storing it twice harmless. Reads only committed records ({@code read_committed}):
  * Track &amp; Detection writes in transactions, and an aborted one must not show up as a detection.
+ * <p>
+ * A batch the database refuses because of its content (e.g. a NUL character in a text field) is
+ * stored again message by message, and only the messages it refuses are logged and skipped: retrying
+ * them would fail forever and hold up everything behind them. Any other failure (the database is
+ * down) fails the batch, which is retried until it is stored.
  */
 @Component
 class IngestListeners {
@@ -44,7 +52,10 @@ class IngestListeners {
 
     @KafkaListener(topics = "#{@intelTopics.vesselStatic()}")
     void vesselStatic(List<ConsumerRecord<String, byte[]>> records) {
-        vessels.save(Decoder.decode(records, VesselStatic.class));
+        store(Decoder.decode(records, VesselStatic.class), batch -> {
+            vessels.save(batch);
+            return List.of();
+        });
     }
 
     @KafkaListener(topics = "#{@intelTopics.trackPoints()}")
@@ -60,21 +71,50 @@ class IngestListeners {
                 })
                 .toList();
         partitions.ensure(points.stream().map(TrackPoint::time).toList());
-        trackPoints.save(points);
+        store(points, batch -> {
+            trackPoints.save(batch);
+            return List.of();
+        });
     }
 
     @KafkaListener(topics = "#{@intelTopics.coverageCells()}")
     void coverageCells(List<ConsumerRecord<String, byte[]>> records) {
-        coverage.save(Decoder.decode(records, CoverageCell.class));
+        store(Decoder.decode(records, CoverageCell.class), batch -> {
+            coverage.save(batch);
+            return List.of();
+        });
     }
 
     /** New and newer detections also go to the analysts' live stream, after they are stored. */
     @KafkaListener(topics = "#{@intelTopics.detections()}")
     void detections(List<ConsumerRecord<String, byte[]>> records) {
-        List<Detection> changed = detections.save(Decoder.decode(records, Detection.class));
+        List<Detection> changed = store(Decoder.decode(records, Detection.class), detections::save);
         for (Detection d : changed) {
             log.info("Detection {} {} v{} for {}", d.detectionId(), d.status(), d.version(), d.mmsi());
             events.publishEvent(new AnalystEvent("detection", d));
+        }
+    }
+
+    /**
+     * Saves a batch in one transaction; if the database refuses its content, saves each message in its
+     * own transaction and skips the ones refused.
+     *
+     * @param save stores a list in one transaction and returns what it changed
+     */
+    static <T> List<T> store(List<T> messages, Function<List<T>, List<T>> save) {
+        try {
+            return save.apply(messages);
+        } catch (DataIntegrityViolationException batchRefused) {
+            List<T> changed = new ArrayList<>();
+            for (T message : messages) {
+                try {
+                    changed.addAll(save.apply(List.of(message)));
+                } catch (DataIntegrityViolationException e) {
+                    log.warn("Skipping a message the database refuses: {} ({})", message,
+                            e.getMostSpecificCause().getMessage());
+                }
+            }
+            return changed;
         }
     }
 }
