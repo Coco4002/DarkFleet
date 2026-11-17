@@ -66,5 +66,10 @@ class RetentionTest extends IntegrationTest {
         // a late point for the dropped day recreates its partition instead of failing
         seed.trackPoints(MMSI, "cell", Instant.parse("2026-10-01T20:00:00Z"));
         assertEquals(1L, jdbc.queryForObject("SELECT count(*) FROM track_point_20261001", Long.class));
+
+        // a kept point delivered again lands in the recreated partition too, but is shown once
+        seed.trackPoints(MMSI, "cell", Instant.parse("2026-10-01T07:00:00Z"));
+        mvc.perform(get(ANALYST_KEY, "/api/v1/vessels/{mmsi}/track?from=2026-10-01T06:00:00Z&to=2026-10-01T08:00:00Z", MMSI))
+                .andExpect(jsonPath("$[*].time", contains("2026-10-01T07:00:00Z")));
     }
 }

@@ -134,7 +134,10 @@ public class VesselQueries {
         return new VesselProfile(mmsi, data, last, identities, sameImo, listings, watchlist, detections, cases);
     }
 
-    /** Track points in [from, to), including those kept around detections after their day expired. */
+    /**
+     * Track points in [from, to), including those kept around detections after their day expired. UNION,
+     * not UNION ALL: a kept point delivered again after its day was dropped is in both tables.
+     */
     public List<TrackPointView> track(String mmsi, Instant from, Instant to) {
         requireMmsi(mmsi);
         if (!from.isBefore(to)) {
@@ -147,7 +150,7 @@ public class VesselQueries {
                 .addValue("from", Timestamp.from(from)).addValue("to", Timestamp.from(to));
         return jdbc.query("SELECT " + Mappers.TRACK_POINT_COLUMNS
                 + " FROM track_point WHERE mmsi = :mmsi AND time >= :from AND time < :to"
-                + " UNION ALL SELECT " + Mappers.TRACK_POINT_COLUMNS
+                + " UNION SELECT " + Mappers.TRACK_POINT_COLUMNS
                 + " FROM track_point_kept WHERE mmsi = :mmsi AND time >= :from AND time < :to"
                 + " ORDER BY time", params, Mappers.TRACK_POINT);
     }

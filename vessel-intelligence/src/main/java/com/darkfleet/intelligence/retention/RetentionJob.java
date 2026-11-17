@@ -85,6 +85,8 @@ public class RetentionJob {
         Integer kept = transaction.execute(status -> {
             // the same lock as partition creation: a point for this day arriving now waits, then recreates it
             jdbc.query("SELECT pg_advisory_xact_lock(hashtext('track_point partitions ' || current_schema()))", rs -> { });
+            // waits for inserts into the day still in flight, so the copy below sees them, and holds off new ones
+            jdbc.execute("LOCK TABLE " + partition + " IN ACCESS EXCLUSIVE MODE");
             int rows = jdbc.update(KEEP_NEAR_DETECTIONS.formatted(partition), seconds, seconds);
             jdbc.execute("DROP TABLE " + partition);
             return rows;

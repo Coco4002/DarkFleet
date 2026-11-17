@@ -46,7 +46,7 @@ public class Cases {
                 SELECT jsonb_agg(jsonb_build_object(
                            'mmsi', t.mmsi, 'time', t.time, 'latitude', ST_Y(t.position), 'longitude', ST_X(t.position),
                            'sogKnots', t.sog_knots, 'cogDegrees', t.cog_degrees, 'source', t.source) ORDER BY t.time)
-                FROM (SELECT * FROM track_point UNION ALL SELECT * FROM track_point_kept) t
+                FROM (SELECT * FROM track_point UNION SELECT * FROM track_point_kept) t
                 WHERE t.mmsi = m.mmsi
                   AND t.time >= d.started_at - interval '6 hours'
                   AND t.time <= least(coalesce(d.ended_at, now()) + interval '6 hours', d.started_at + interval '7 days')
