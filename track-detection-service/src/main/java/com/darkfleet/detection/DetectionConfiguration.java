@@ -27,7 +27,7 @@ class DetectionConfiguration {
 
     @Bean
     KStream<String, NormalizedAisMessage> detectionTopology(StreamsBuilder builder, DetectionProperties properties) {
-        return DetectionTopology.build(builder, properties);
+        return DetectionTopology.build(builder, properties.withSharedBaseline());
     }
 
     /** Every topic the topology reads or writes, created at startup before the streams start. */

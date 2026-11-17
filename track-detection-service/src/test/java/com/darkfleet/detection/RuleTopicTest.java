@@ -8,6 +8,7 @@ import java.time.Duration;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /** Which rule topic each mode listens to, and where the baseline comes from. */
@@ -25,19 +26,21 @@ class RuleTopicTest {
     }
 
     @Test
-    void baselineComesFromTheSharedFileWhenNotGiven() {
-        assertEquals(DetectionRules.baseline(), properties(DetectionMode.LIVE).baselineRules());
+    void baselineComesFromTheSharedFileAndCantBeConfigured() {
+        assertEquals(DetectionRules.baseline(), properties(DetectionMode.LIVE, null).withSharedBaseline().baselineRules());
+        DetectionProperties configured = properties(DetectionMode.LIVE, DetectionRules.baseline());
+        assertThrows(IllegalStateException.class, configured::withSharedBaseline);
     }
 
     private static String describe(DetectionMode mode) {
         StreamsBuilder builder = new StreamsBuilder();
-        DetectionTopology.build(builder, properties(mode));
+        DetectionTopology.build(builder, properties(mode, null).withSharedBaseline());
         return builder.build().describe().toString();
     }
 
-    private static DetectionProperties properties(DetectionMode mode) {
+    private static DetectionProperties properties(DetectionMode mode, DetectionRules baseline) {
         return new DetectionProperties(mode, Duration.ofMinutes(1), Duration.ofMinutes(2), Duration.ofMinutes(5),
                 Duration.ofMinutes(1), 20, 3, Duration.ofHours(24), Duration.ofHours(48), Duration.ofMinutes(30),
-                Duration.ofMinutes(10), null);
+                Duration.ofMinutes(10), baseline);
     }
 }

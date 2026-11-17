@@ -36,6 +36,8 @@ import org.apache.kafka.streams.state.KeyValueStore;
 import org.apache.kafka.streams.state.StoreBuilder;
 import org.apache.kafka.streams.state.Stores;
 
+import java.util.Objects;
+
 /**
  * The Track &amp; Detection topology.
  * <pre>
@@ -58,6 +60,7 @@ public final class DetectionTopology {
     }
 
     public static KStream<String, NormalizedAisMessage> build(StreamsBuilder builder, DetectionProperties properties) {
+        Objects.requireNonNull(properties.baselineRules(), "the baseline rules are required");
         DetectionMode mode = properties.mode();
         DetectionClock clock = new DetectionClock(properties);
 
