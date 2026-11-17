@@ -70,10 +70,15 @@ public record DetectionRules(
 
     public DetectionRules {
         if (version < 0 || gapMinutes <= 0 || coverageMinPositions <= 0 || portMinStoppedVessels <= 0
-                || loiteringMaxSpeedKnots <= 0 || loiteringMinMinutes <= 0 || encounterMaxDistanceMeters <= 0
-                || encounterMaxSpeedKnots <= 0 || encounterMinMinutes <= 0 || identityWindowHours <= 0
-                || draughtChangeMeters <= 0) {
-            throw new IllegalArgumentException("Detection rules need a version >= 0 and positive thresholds: " + version);
+                || !positive(loiteringMaxSpeedKnots) || loiteringMinMinutes <= 0 || !positive(encounterMaxDistanceMeters)
+                || !positive(encounterMaxSpeedKnots) || encounterMinMinutes <= 0 || identityWindowHours <= 0
+                || !positive(draughtChangeMeters)) {
+            throw new IllegalArgumentException("Detection rules need a version >= 0 and positive, finite thresholds: " + version);
         }
+    }
+
+    /** False for zero, negative values, NaN and infinity: comparisons with NaN are always false. */
+    private static boolean positive(double value) {
+        return value > 0 && Double.isFinite(value);
     }
 }

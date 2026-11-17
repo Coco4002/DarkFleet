@@ -175,6 +175,11 @@ class DecisionApiTest extends IntegrationTest {
         mvc.perform(post(ADMIN_KEY, "/api/v1/proposals", proposal("RULE_CHANGE", missing, "rules-missing")))
                 .andExpect(status().isUnprocessableContent())
                 .andExpect(jsonPath("$.detail").value("encounterMinMinutes is required"));
+        // JSON has no NaN, but Jackson reads the string "NaN" as one; every comparison with it is false
+        mvc.perform(post(ADMIN_KEY, "/api/v1/proposals",
+                        proposal("RULE_CHANGE", baselineWith("loiteringMaxSpeedKnots", "NaN"), "rules-nan")))
+                .andExpect(status().isUnprocessableContent())
+                .andExpect(jsonPath("$.detail").value("loiteringMaxSpeedKnots must be between 0.1 and 10"));
     }
 
     @Test

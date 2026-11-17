@@ -84,7 +84,7 @@ public final class Proposals {
         private static void range(List<String> problems, String name, Number value, double min, double max) {
             if (value == null) {
                 problems.add(name + " is required");
-            } else if (value.doubleValue() < min || value.doubleValue() > max) {
+            } else if (!(value.doubleValue() >= min && value.doubleValue() <= max)) { // also refuses NaN
                 problems.add(name + " must be between " + fmt(min) + " and " + fmt(max));
             }
         }
