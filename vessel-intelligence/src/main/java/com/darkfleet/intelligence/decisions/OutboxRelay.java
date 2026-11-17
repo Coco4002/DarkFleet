@@ -11,16 +11,15 @@ import org.springframework.transaction.support.TransactionTemplate;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.List;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
 /**
- * Publishes the outbox to Kafka every second, oldest first, one message at a time and waiting for each
- * acknowledgement. On the first failure it stops and starts again from that message next round, so
- * messages are never skipped or reordered. A message may be published twice (sent, then the database
- * update failed); consumers of {@code rules.approved} keep the newest version, so that is harmless.
+ * Publishes the outbox to Kafka every second, oldest first. Each message is sent, acknowledged and
+ * marked as published in its own transaction before the next one is read, so a message is never
+ * skipped or reordered. A crash between the send and the mark resends only that message, which is
+ * then the newest one sent: the last record on {@code rules.approved} is always the latest rule set.
  */
 @Component
 class OutboxRelay {
@@ -48,31 +47,40 @@ class OutboxRelay {
 
     @Scheduled(fixedDelay = 1000)
     void publish() {
-        transaction.executeWithoutResult(status -> {
-            // one relay at a time, should a second instance ever run
-            Boolean mine = jdbc.queryForObject("SELECT pg_try_advisory_xact_lock(hashtext('outbox relay ' || current_schema()))", Boolean.class);
-            if (!Boolean.TRUE.equals(mine)) {
+        for (int i = 0; i < BATCH; i++) {
+            if (!Boolean.TRUE.equals(transaction.execute(status -> publishOldest()))) {
                 return;
             }
-            List<Pending> pending = jdbc.query("""
-                    SELECT id, topic, key, payload::text AS payload FROM outbox
-                    WHERE published_at IS NULL ORDER BY id LIMIT ?""",
-                    (rs, i) -> new Pending(rs.getLong("id"), rs.getString("topic"), rs.getString("key"),
-                            rs.getString("payload")), BATCH);
-            for (Pending p : pending) {
-                try {
-                    kafka.send(p.topic(), p.key(), p.payload()).get(SEND_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    return;
-                } catch (ExecutionException | TimeoutException | RuntimeException e) {
-                    warn(p, e);
-                    return;
-                }
-                jdbc.update("UPDATE outbox SET published_at = now() WHERE id = ?", p.id());
-                log.info("Published outbox message {} to {}", p.id(), p.topic());
-            }
-        });
+        }
+    }
+
+    /** @return true when a message was published and the next one may follow */
+    private boolean publishOldest() {
+        // one relay at a time, should a second instance ever run
+        Boolean mine = jdbc.queryForObject("SELECT pg_try_advisory_xact_lock(hashtext('outbox relay ' || current_schema()))", Boolean.class);
+        if (!Boolean.TRUE.equals(mine)) {
+            return false;
+        }
+        Pending p = jdbc.query("""
+                SELECT id, topic, key, payload::text AS payload FROM outbox
+                WHERE published_at IS NULL ORDER BY id LIMIT 1""",
+                (rs, i) -> new Pending(rs.getLong("id"), rs.getString("topic"), rs.getString("key"),
+                        rs.getString("payload"))).stream().findFirst().orElse(null);
+        if (p == null) {
+            return false;
+        }
+        try {
+            kafka.send(p.topic(), p.key(), p.payload()).get(SEND_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
+        } catch (ExecutionException | TimeoutException | RuntimeException e) {
+            warn(p, e);
+            return false;
+        }
+        jdbc.update("UPDATE outbox SET published_at = now() WHERE id = ?", p.id());
+        log.info("Published outbox message {} to {}", p.id(), p.topic());
+        return true;
     }
 
     private void warn(Pending p, Exception e) {
