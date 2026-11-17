@@ -1,6 +1,7 @@
 package com.darkfleet.intelligence.events;
 
 import com.darkfleet.intelligence.web.ApiException;
+import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
@@ -13,12 +14,16 @@ import java.io.IOException;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * The analysts' live stream (server-sent events). Events go out only after their transaction commits,
  * so nobody is told about a change that was rolled back. A connection lasts at most
  * {@link #CONNECTION_LIFETIME}; browsers reconnect on their own. A heartbeat every 20 s keeps proxies
- * from closing idle connections.
+ * from closing idle connections. Events are written by one thread of their own, in order: a browser
+ * that stops reading can hold up the stream, but never the Kafka consumer or the scheduler that
+ * published the event.
  */
 @Component
 public class AnalystEvents {
@@ -29,6 +34,8 @@ public class AnalystEvents {
     static final int MAX_CONNECTIONS = 50;
 
     private final List<SseEmitter> emitters = new CopyOnWriteArrayList<>();
+    private final ExecutorService sender = Executors.newSingleThreadExecutor(
+            Thread.ofPlatform().name("analyst-events").daemon().factory());
 
     public SseEmitter connect() {
         if (emitters.size() >= MAX_CONNECTIONS) {
@@ -46,16 +53,25 @@ public class AnalystEvents {
     /** Runs immediately when published outside a transaction, after commit when inside one. */
     @TransactionalEventListener(fallbackExecution = true)
     public void publish(AnalystEvent event) {
-        for (SseEmitter emitter : emitters) {
-            send(emitter, SseEmitter.event().name(event.name()).data(event.data(), MediaType.APPLICATION_JSON));
-        }
+        sender.execute(() -> {
+            for (SseEmitter emitter : emitters) {
+                send(emitter, SseEmitter.event().name(event.name()).data(event.data(), MediaType.APPLICATION_JSON));
+            }
+        });
     }
 
     @Scheduled(fixedRate = 20_000)
     void heartbeat() {
-        for (SseEmitter emitter : emitters) {
-            send(emitter, SseEmitter.event().comment("heartbeat"));
-        }
+        sender.execute(() -> {
+            for (SseEmitter emitter : emitters) {
+                send(emitter, SseEmitter.event().comment("heartbeat"));
+            }
+        });
+    }
+
+    @PreDestroy
+    void stop() {
+        sender.shutdownNow();
     }
 
     int connections() {

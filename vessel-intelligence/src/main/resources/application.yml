@@ -9,7 +9,7 @@ spring:
   datasource:
     url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/darkfleet
     username: darkfleet
-    password: ${POSTGRES_PASSWORD:}
+    password: ${POSTGRES_PASSWORD}
     hikari:
       # PostGIS lives in public; this service's tables live in its own schema (public when live).
       # UTC session: times the database renders itself (evidence JSON) never depend on the host's zone.
