@@ -19,6 +19,7 @@
         <module>adapter-digitraffic</module>
         <module>adapter-replay</module>
         <module>track-detection-service</module>
+        <module>vessel-intelligence</module>
     </modules>
 
     <properties>

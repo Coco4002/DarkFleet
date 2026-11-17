@@ -179,6 +179,50 @@ services:
     ports:
       - "127.0.0.1:8085:8084"
 
+  # The only service that writes the database. Private: not routed through Caddy.
+  vessel-intelligence:
+    <<: *service
+    build:
+      context: .
+      args:
+        MODULE: vessel-intelligence
+    image: ${DARKFLEET_IMAGE_PREFIX:-darkfleet-}vessel-intelligence:${DARKFLEET_TAG:-dev}
+    depends_on:
+      kafka:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    environment:
+      <<: *security-env
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      POSTGRES_HOST: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    ports:
+      - "127.0.0.1:8086:8086"
+
+  # Vessel Intelligence over replayed data: reads the replay.* topics, keeps its tables in schema "replay".
+  vessel-intelligence-replay:
+    <<: *service
+    profiles: [replay]
+    build:
+      context: .
+      args:
+        MODULE: vessel-intelligence
+    image: ${DARKFLEET_IMAGE_PREFIX:-darkfleet-}vessel-intelligence:${DARKFLEET_TAG:-dev}
+    depends_on:
+      kafka:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    environment:
+      <<: *security-env
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      POSTGRES_HOST: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      SPRING_PROFILES_ACTIVE: replay
+    ports:
+      - "127.0.0.1:8087:8086"
+
 volumes:
   kafka-data:
   postgres-data:

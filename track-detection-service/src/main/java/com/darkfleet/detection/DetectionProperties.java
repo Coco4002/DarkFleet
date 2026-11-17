@@ -20,7 +20,9 @@ import java.util.Objects;
  * @param forgetAfter           a vessel not heard from for this long is dropped, closing what is still open
  * @param episodeBreak          loitering or an encounter without a qualifying report for this long is over
  * @param coverageGrace         how long after the end of an hour late reports are still counted for it
- * @param baselineRules         rules in force until an approved rule set arrives
+ * @param baselineRules         rules in force until an approved rule set arrives; not configured here but
+ *                              taken from {@link DetectionRules#baseline()}, the file Vessel Intelligence
+ *                              reads too (tests may pass their own)
  */
 @ConfigurationProperties(prefix = "darkfleet.detection")
 public record DetectionProperties(
@@ -48,7 +50,9 @@ public record DetectionProperties(
         Objects.requireNonNull(forgetAfter, "darkfleet.detection.forget-after is required");
         Objects.requireNonNull(episodeBreak, "darkfleet.detection.episode-break is required");
         Objects.requireNonNull(coverageGrace, "darkfleet.detection.coverage-grace is required");
-        Objects.requireNonNull(baselineRules, "darkfleet.detection.baseline-rules is required");
+        if (baselineRules == null) {
+            baselineRules = DetectionRules.baseline();
+        }
         if (trackTurnDegrees <= 0 || trackSpeedChangeKnots <= 0) {
             throw new IllegalArgumentException("darkfleet.detection.track-turn-degrees and track-speed-change-knots must be positive");
         }

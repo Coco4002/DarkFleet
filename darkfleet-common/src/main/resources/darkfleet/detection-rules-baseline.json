@@ -1,0 +1,13 @@
+{
+  "version": 0,
+  "gapMinutes": 60,
+  "coverageMinPositions": 5,
+  "portMinStoppedVessels": 5,
+  "loiteringMaxSpeedKnots": 3.0,
+  "loiteringMinMinutes": 120,
+  "encounterMaxDistanceMeters": 500,
+  "encounterMaxSpeedKnots": 2.0,
+  "encounterMinMinutes": 120,
+  "identityWindowHours": 24,
+  "draughtChangeMeters": 0.4
+}

@@ -1,0 +1,9 @@
+"type","caption","imo","risk","countries","flag","mmsi","id","url","datasets","aliases"
+"VESSEL","EVENTIN","IMO9308065","sanction;mare.shadow","pa","pa","352001234","eu-fsf-eventin","https://www.opensanctions.org/entities/eu-fsf-eventin","eu_fsf;gb_hmt_sanctions","EVENTIN, EX ""LAJA"""
+"VESSEL","SHADOW RUNNER","","mare.shadow","ga","ga","613000001;613000002","shadow-runner","https://www.opensanctions.org/entities/shadow-runner","ext_shadow_fleet",""
+"VESSEL","DETAINED ONE","IMO9111111","mare.detained","","pa","","detained-one","https://www.opensanctions.org/entities/detained-one","abuja_mou_detention",""
+"VESSEL","QUIET SHIP","IMO9222222","","","","","no-risk","https://www.opensanctions.org/entities/no-risk","",""
+"VESSEL","NO IDS","","sanction","","","","no-ids","https://www.opensanctions.org/entities/no-ids","us_ofac_sdn",""
+"ORGANIZATION","SHADOW SHIPPING LLC","IMO5555555","sanction","ae","","","org-1","https://www.opensanctions.org/entities/org-1","eu_fsf",""
+"VESSEL","WARNED","IMO9333333","reg.warn","","mt","248000001","warned","https://www.opensanctions.org/entities/warned","mt_warnings","WARNED
+SECOND LINE"

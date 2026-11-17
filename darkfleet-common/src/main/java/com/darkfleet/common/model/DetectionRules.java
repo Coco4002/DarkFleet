@@ -1,10 +1,17 @@
 package com.darkfleet.common.model;
 
+import com.darkfleet.common.kafka.JsonSerde;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.UncheckedIOException;
+
 /**
- * The thresholds Track &amp; Detection works with. The baseline comes from Track &amp; Detection's
- * configuration (version 0); an analyst-approved rule set arrives on {@code rules.approved} under
- * {@link #KEY} and replaces it. The latest record on the topic is the one in force: Vessel
- * Intelligence publishes approved rule sets in approval order.
+ * The thresholds Track &amp; Detection works with. The baseline (version 0, {@link #baseline()}) is
+ * shared by Track &amp; Detection, which applies it until a rule set is approved, and Vessel
+ * Intelligence, which shows it and builds rule changes on it. An analyst-approved rule set arrives on
+ * {@code rules.approved} under {@link #KEY} and replaces it. The latest record on the topic is the
+ * one in force: Vessel Intelligence publishes approved rule sets in approval order.
  *
  * @param gapMinutes                 silence after which a vessel's gap is checked
  * @param coverageMinPositions       position reports a feed must have delivered from a cell over the
@@ -34,6 +41,32 @@ public record DetectionRules(
 ) {
 
     public static final String KEY = "detection";
+
+    private static final String BASELINE_RESOURCE = "/darkfleet/detection-rules-baseline.json";
+
+    /** The rules in force until an analyst approves a rule set; one file read by every service. */
+    public static DetectionRules baseline() {
+        return Baseline.RULES;
+    }
+
+    private static final class Baseline {
+        static final DetectionRules RULES = load();
+
+        private static DetectionRules load() {
+            try (InputStream in = DetectionRules.class.getResourceAsStream(BASELINE_RESOURCE)) {
+                if (in == null) {
+                    throw new IllegalStateException("Missing " + BASELINE_RESOURCE);
+                }
+                DetectionRules rules = JsonSerde.mapper().readValue(in, DetectionRules.class);
+                if (rules.version() != 0) {
+                    throw new IllegalStateException("The baseline rules must be version 0");
+                }
+                return rules;
+            } catch (IOException e) {
+                throw new UncheckedIOException(e);
+            }
+        }
+    }
 
     public DetectionRules {
         if (version < 0 || gapMinutes <= 0 || coverageMinPositions <= 0 || portMinStoppedVessels <= 0
