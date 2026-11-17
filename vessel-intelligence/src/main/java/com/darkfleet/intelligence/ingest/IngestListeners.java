@@ -74,10 +74,16 @@ class IngestListeners {
                 })
                 .toList();
         partitions.ensure(points.stream().map(TrackPoint::time).toList());
-        store(points, batch -> {
-            trackPoints.save(batch);
-            return List.of();
-        });
+        try {
+            store(points, batch -> {
+                trackPoints.save(batch);
+                return List.of();
+            });
+        } catch (DataIntegrityViolationException e) {
+            // typically a day's partition dropped by retention after it was ensured: the retry creates it again
+            partitions.forgetAll();
+            throw e;
+        }
     }
 
     @KafkaListener(topics = "#{@intelTopics.coverageCells()}")

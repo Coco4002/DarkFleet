@@ -40,6 +40,11 @@ public class TrackPartitions {
                 .forEach(this::create);
     }
 
+    /** Forgets every day, so the next {@link #ensure} asks the database again. */
+    public void forgetAll() {
+        known.clear();
+    }
+
     /** Forgets a day, e.g. after its partition was dropped. */
     public void forget(LocalDate day) {
         known.remove(day);

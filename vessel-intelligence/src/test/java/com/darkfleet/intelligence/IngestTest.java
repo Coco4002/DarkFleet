@@ -85,6 +85,22 @@ class IngestTest extends IntegrationTest {
     }
 
     @Test
+    void aPartitionDroppedBehindTheCacheIsCreatedAgain() {
+        String mmsi = "230000012";
+        TrackPoint first = point(mmsi, Instant.parse("2026-11-05T10:00:00Z"));
+        TrackPoint later = point(mmsi, Instant.parse("2026-11-05T11:00:00Z"));
+        send(DarkFleetTopics.TRACK_POINTS, mmsi, first);
+        awaitCount(1, "SELECT count(*) FROM track_point WHERE mmsi = ?", mmsi);
+
+        // dropped while the service still believes the day has its partition (retention racing a creation)
+        jdbc.execute("DROP TABLE track_point_20261105");
+        send(DarkFleetTopics.TRACK_POINTS, mmsi, later);
+
+        awaitCount(1, "SELECT count(*) FROM track_point WHERE mmsi = ? AND time = ?", mmsi,
+                Timestamp.from(later.time()));
+    }
+
+    @Test
     void vesselKeepsNewestDataAndEveryIdentityItBroadcast() {
         String mmsi = "230000021";
         Instant t1 = T0;
