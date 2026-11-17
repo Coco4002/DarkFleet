@@ -35,17 +35,7 @@ darkfleet:
     forget-after: 48h
     episode-break: 30m
     coverage-grace: 10m
-    # In force until an analyst approves a rule set (rules.approved). Encounter values follow
-    # Global Fishing Watch's published encounter definition (500 m, below 2 kn, at least 2 h).
-    baseline-rules:
-      version: 0
-      gap-minutes: 60
-      coverage-min-positions: 5
-      port-min-stopped-vessels: 5
-      loitering-max-speed-knots: 3.0
-      loitering-min-minutes: 120
-      encounter-max-distance-meters: 500
-      encounter-max-speed-knots: 2.0
-      encounter-min-minutes: 120
-      identity-window-hours: 24
-      draught-change-meters: 0.4
+    # The thresholds in force until an analyst approves a rule set (rules.approved) are the shared
+    # baseline in darkfleet-common (darkfleet/detection-rules-baseline.json), which Vessel Intelligence
+    # reads too. Its encounter values follow Global Fishing Watch's published encounter definition
+    # (500 m, below 2 kn, at least 2 h).

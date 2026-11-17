@@ -77,7 +77,7 @@ final class Harness implements AutoCloseable {
         ais = driver.createInputTopic(mode.inputTopic(), keys.serializer(), new JsonSerde<>(NormalizedAisMessage.class).serializer());
         feeds = driver.createInputTopic(DarkFleetTopics.FEED_HEALTH, keys.serializer(), new JsonSerde<>(FeedHealth.class).serializer());
         cells = driver.createInputTopic(mode.output(DarkFleetTopics.COVERAGE_CELLS), keys.serializer(), new JsonSerde<>(CoverageCell.class).serializer());
-        rules = driver.createInputTopic(DarkFleetTopics.RULES_APPROVED, keys.serializer(), new JsonSerde<>(DetectionRules.class).serializer());
+        rules = driver.createInputTopic(mode.output(DarkFleetTopics.RULES_APPROVED), keys.serializer(), new JsonSerde<>(DetectionRules.class).serializer());
         detections = driver.createOutputTopic(mode.output(DarkFleetTopics.DETECTIONS), keys.deserializer(), new JsonSerde<>(Detection.class).deserializer());
         trackPoints = driver.createOutputTopic(mode.output(DarkFleetTopics.TRACK_POINTS), keys.deserializer(), new JsonSerde<>(TrackPoint.class).deserializer());
         statics = driver.createOutputTopic(mode.output(DarkFleetTopics.VESSEL_STATIC), keys.deserializer(), new JsonSerde<>(VesselStatic.class).deserializer());

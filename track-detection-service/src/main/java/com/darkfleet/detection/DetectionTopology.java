@@ -36,6 +36,8 @@ import org.apache.kafka.streams.state.KeyValueStore;
 import org.apache.kafka.streams.state.StoreBuilder;
 import org.apache.kafka.streams.state.Stores;
 
+import java.util.Objects;
+
 /**
  * The Track &amp; Detection topology.
  * <pre>
@@ -58,10 +60,12 @@ public final class DetectionTopology {
     }
 
     public static KStream<String, NormalizedAisMessage> build(StreamsBuilder builder, DetectionProperties properties) {
+        Objects.requireNonNull(properties.baselineRules(), "the baseline rules are required");
         DetectionMode mode = properties.mode();
         DetectionClock clock = new DetectionClock(properties);
 
-        globalTable(builder, DarkFleetTopics.RULES_APPROVED, Lookups.RULES_STORE, DetectionRules.class);
+        // replay has its own rule topic: a rule approved while replaying must never change live detection
+        globalTable(builder, mode.output(DarkFleetTopics.RULES_APPROVED), Lookups.RULES_STORE, DetectionRules.class);
         globalTable(builder, DarkFleetTopics.FEED_HEALTH, Lookups.FEEDS_STORE, FeedHealth.class);
         globalTable(builder, mode.output(DarkFleetTopics.COVERAGE_CELLS), Lookups.CELLS_STORE, CoverageCell.class);
 

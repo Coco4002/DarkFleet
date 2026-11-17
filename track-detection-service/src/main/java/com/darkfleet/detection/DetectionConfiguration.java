@@ -27,7 +27,7 @@ class DetectionConfiguration {
 
     @Bean
     KStream<String, NormalizedAisMessage> detectionTopology(StreamsBuilder builder, DetectionProperties properties) {
-        return DetectionTopology.build(builder, properties);
+        return DetectionTopology.build(builder, properties.withSharedBaseline());
     }
 
     /** Every topic the topology reads or writes, created at startup before the streams start. */
@@ -35,7 +35,7 @@ class DetectionConfiguration {
     KafkaAdmin.NewTopics detectionTopics(DetectionProperties properties) {
         DetectionMode mode = properties.mode();
         return new KafkaAdmin.NewTopics(Stream.of(
-                        mode.inputTopic(), DarkFleetTopics.FEED_HEALTH, DarkFleetTopics.RULES_APPROVED,
+                        mode.inputTopic(), DarkFleetTopics.FEED_HEALTH, mode.output(DarkFleetTopics.RULES_APPROVED),
                         mode.output(DarkFleetTopics.VESSEL_STATIC), mode.output(DarkFleetTopics.TRACK_POINTS),
                         mode.output(DarkFleetTopics.COVERAGE_CELLS), mode.output(DarkFleetTopics.DETECTIONS))
                 .map(DarkFleetTopics::newTopic).toArray(NewTopic[]::new));

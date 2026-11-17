@@ -1,0 +1,78 @@
+server:
+  port: ${SERVER_PORT:8086}
+
+spring:
+  config:
+    import: optional:classpath:darkfleet-security.yml
+  application:
+    name: vessel-intelligence
+  datasource:
+    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/darkfleet
+    username: darkfleet
+    password: ${POSTGRES_PASSWORD}
+    hikari:
+      # PostGIS lives in public; this service's tables live in its own schema (public when live).
+      # UTC session: times the database renders itself (evidence JSON) never depend on the host's zone.
+      connection-init-sql: SET search_path TO ${darkfleet.intelligence.schema}, public; SET TIME ZONE 'UTC'
+  flyway:
+    schemas: ${darkfleet.intelligence.schema}
+    default-schema: ${darkfleet.intelligence.schema}
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      group-id: darkfleet-vessel-intelligence
+      # a new consumer group stores everything the topics still hold
+      auto-offset-reset: earliest
+      # Track & Detection writes in transactions; never read what an aborted one wrote
+      isolation-level: read-committed
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.ByteArrayDeserializer
+    listener:
+      type: batch
+      # offsets are committed after the listener (and its database transaction) returns
+      ack-mode: batch
+    producer:
+      # only the outbox relay produces: approved rule sets, already serialized as JSON
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+  mvc:
+    problemdetails:
+      enabled: true
+  task:
+    scheduling:
+      pool:
+        # outbox relay, SSE heartbeat, retention, sanction refresh
+        size: 4
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: when-authorized
+
+darkfleet:
+  intelligence:
+    replay: false
+    schema: public
+    sanctions:
+      # OpenSanctions maritime list (CC BY-NC 4.0); blank turns the automatic import off
+      url: ${DARKFLEET_SANCTIONS_URL:https://data.opensanctions.org/datasets/latest/maritime/maritime.csv}
+      max-age: 24h
+      min-share: 0.5
+      # first freshness check after start-up, then hourly
+      first-check: PT1M
+    retention:
+      enabled: true
+      track-days: 7
+      keep-around-detection: 6h
+      coverage-days: 7
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html

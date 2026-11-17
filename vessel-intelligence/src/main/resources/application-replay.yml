@@ -1,0 +1,14 @@
+# Replay mode: reads the replay.* topics Track & Detection writes from replayed data and keeps its
+# tables in the "replay" schema, so replayed data never mixes with live data.
+spring:
+  kafka:
+    consumer:
+      group-id: darkfleet-vessel-intelligence-replay
+
+darkfleet:
+  intelligence:
+    replay: true
+    schema: replay
+    retention:
+      # replayed days are old by definition; keep them until the replay schema is dropped by hand
+      enabled: false

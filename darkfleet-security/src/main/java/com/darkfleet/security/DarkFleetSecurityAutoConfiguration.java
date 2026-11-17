@@ -1,5 +1,6 @@
 package com.darkfleet.security;
 
+import jakarta.servlet.DispatcherType;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
@@ -68,6 +69,9 @@ public class DarkFleetSecurityAutoConfiguration {
                 .addFilterBefore(new ApiKeyAuthenticationFilter(properties.getApiClients()),
                         BasicAuthenticationFilter.class)
                 .authorizeHttpRequests(auth -> {
+                    // The original request was already authorized. Its async dispatch (e.g. when a
+                    // server-sent event stream ends) and error dispatch carry no API key of their own.
+                    auth.dispatcherTypeMatchers(DispatcherType.ASYNC, DispatcherType.ERROR).permitAll();
                     auth.requestMatchers(ALWAYS_PUBLIC).permitAll();
                     if (!properties.getPublicPaths().isEmpty()) {
                         auth.requestMatchers(properties.getPublicPaths().toArray(String[]::new)).permitAll();
