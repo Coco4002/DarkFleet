@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Nightly backup of the DarkFleet database (run from the repository root, e.g. by cron on the server):
-#   0 3 * * * cd /opt/darkfleet && deploy/backup/backup.sh >> backups/backup.log 2>&1
+#   0 3 * * * cd /opt/darkfleet && mkdir -p backups && deploy/backup/backup.sh >> backups/backup.log 2>&1
 #
 # Writes backups/darkfleet-<UTC time>.dump (pg_dump custom format: compressed, restorable table by table)
 # and keeps the newest $KEEP. Set BACKUP_REMOTE (an rsync destination such as user@host:/srv/backups)

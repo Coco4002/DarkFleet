@@ -1,6 +1,7 @@
 package com.darkfleet.intelligence.decisions;
 
 import com.darkfleet.common.model.DetectionRules;
+import io.swagger.v3.oas.annotations.media.Schema;
 import tools.jackson.databind.JsonNode;
 
 import java.time.Instant;
@@ -26,11 +27,17 @@ public final class Proposals {
      * @param confidence 0 to 1, optional
      * @param requestId  chosen by the proposer; sending the same request again returns the first proposal
      */
-    public record ProposalRequest(Type type, JsonNode payload, String rationale, JsonNode evidence, Double confidence,
-                                  String requestId) {
+    public record ProposalRequest(Type type,
+                                  @Schema(description = "CasePayload for CASE, WatchlistPayload for WATCHLIST_CHANGE, "
+                                          + "RuleChangePayload for RULE_CHANGE",
+                                          oneOf = {CasePayload.class, WatchlistPayload.class, RuleChangePayload.class})
+                                  JsonNode payload,
+                                  String rationale, JsonNode evidence, Double confidence, String requestId) {
     }
 
-    public record ProposalView(String id, Type type, Status status, JsonNode payload, String rationale,
+    public record ProposalView(String id, Type type, Status status,
+                               @Schema(oneOf = {CasePayload.class, WatchlistPayload.class, RuleChangePayload.class})
+                               JsonNode payload, String rationale,
                                JsonNode evidence, Double confidence, String proposedBy, String requestId,
                                Instant createdAt, String decidedBy, Instant decidedAt, String decisionNote,
                                String resultType, String resultId) {

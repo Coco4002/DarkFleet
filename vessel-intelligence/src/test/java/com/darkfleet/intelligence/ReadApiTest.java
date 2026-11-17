@@ -55,7 +55,10 @@ class ReadApiTest extends IntegrationTest {
         mvc.perform(get("wrong-key", "/api/v1/vessels")).andExpect(status().isUnauthorized());
         mvc.perform(get(SERVICE_KEY, "/api/v1/vessels")).andExpect(status().isOk());
         mvc.perform(get(null, "/actuator/health")).andExpect(status().isOk());
-        mvc.perform(get(null, "/v3/api-docs")).andExpect(status().isOk());
+        // the API description is public and spells out the three proposal payloads
+        mvc.perform(get(null, "/v3/api-docs")).andExpect(status().isOk())
+                .andExpect(jsonPath("$.components.schemas.ProposalRequest.properties.payload.oneOf.length()").value(3))
+                .andExpect(jsonPath("$.components.schemas.RuleChangePayload.properties.gapMinutes").exists());
     }
 
     @Test
