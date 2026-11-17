@@ -13,6 +13,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
 
+import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Function;
@@ -23,10 +24,12 @@ import java.util.function.Function;
  * the stores make storing it twice harmless. Reads only committed records ({@code read_committed}):
  * Track &amp; Detection writes in transactions, and an aborted one must not show up as a detection.
  * <p>
- * A batch the database refuses because of its content (e.g. a NUL character in a text field) is
- * stored again message by message, and only the messages it refuses are logged and skipped: retrying
- * them would fail forever and hold up everything behind them. Any other failure (the database is
- * down) fails the batch, which is retried until it is stored.
+ * A batch the database refuses because of a value in it (SQL state class 22, "data exception", e.g. a
+ * NUL character in a text field) is stored again message by message, and only the messages it refuses
+ * are logged and skipped: retrying them would fail forever and hold up everything behind them. Any
+ * other failure fails the batch, which is retried until it is stored: the database is down, or a
+ * track point's daily partition was dropped by retention after it was ensured (the retry creates it
+ * again).
  */
 @Component
 class IngestListeners {
@@ -105,16 +108,32 @@ class IngestListeners {
         try {
             return save.apply(messages);
         } catch (DataIntegrityViolationException batchRefused) {
+            if (!refusesAValue(batchRefused)) {
+                throw batchRefused;
+            }
             List<T> changed = new ArrayList<>();
             for (T message : messages) {
                 try {
                     changed.addAll(save.apply(List.of(message)));
                 } catch (DataIntegrityViolationException e) {
+                    if (!refusesAValue(e)) {
+                        throw e;
+                    }
                     log.warn("Skipping a message the database refuses: {} ({})", message,
                             e.getMostSpecificCause().getMessage());
                 }
             }
             return changed;
         }
+    }
+
+    /** True when the database refused a value itself (SQL state class 22), which no retry can change. */
+    static boolean refusesAValue(DataIntegrityViolationException e) {
+        for (Throwable cause = e; cause != null; cause = cause.getCause()) {
+            if (cause instanceof SQLException sql && sql.getSQLState() != null) {
+                return sql.getSQLState().startsWith("22");
+            }
+        }
+        return false;
     }
 }

@@ -20,6 +20,9 @@ import java.util.concurrent.TimeoutException;
  * marked as published in its own transaction before the next one is read, so a message is never
  * skipped or reordered. A crash between the send and the mark resends only that message, which is
  * then the newest one sent: the last record on {@code rules.approved} is always the latest rule set.
+ * This ordering assumes one Vessel Intelligence instance, as deployed: the advisory lock keeps two
+ * relays from publishing at the same time, but a send that timed out here could still reach Kafka
+ * after another instance's later message.
  */
 @Component
 class OutboxRelay {
@@ -56,7 +59,7 @@ class OutboxRelay {
 
     /** @return true when a message was published and the next one may follow */
     private boolean publishOldest() {
-        // one relay at a time, should a second instance ever run
+        // one relay at a time (see the class comment for what this doesn't cover)
         Boolean mine = jdbc.queryForObject("SELECT pg_try_advisory_xact_lock(hashtext('outbox relay ' || current_schema()))", Boolean.class);
         if (!Boolean.TRUE.equals(mine)) {
             return false;

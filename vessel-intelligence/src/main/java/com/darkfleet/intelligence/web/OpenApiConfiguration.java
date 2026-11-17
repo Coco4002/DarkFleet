@@ -6,7 +6,7 @@ import io.swagger.v3.core.converter.ModelConverters;
 import io.swagger.v3.oas.models.Components;
 import io.swagger.v3.oas.models.OpenAPI;
 import io.swagger.v3.oas.models.info.Info;
-import io.swagger.v3.oas.models.media.ObjectSchema;
+import io.swagger.v3.oas.models.media.JsonSchema;
 import io.swagger.v3.oas.models.security.SecurityRequirement;
 import io.swagger.v3.oas.models.security.SecurityScheme;
 import org.springframework.context.annotation.Bean;
@@ -14,11 +14,13 @@ import org.springdoc.core.utils.SpringDocUtils;
 import org.springframework.context.annotation.Configuration;
 import tools.jackson.databind.JsonNode;
 
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.stream.Stream;
 
 /**
  * OpenAPI description; Swagger UI's "Authorize" takes the API key. Free-form JSON (evidence) is
- * described as a JSON object, and the three proposal payloads are described in full.
+ * described as any JSON value, and the three proposal payloads are described in full.
  */
 @Configuration(proxyBeanMethods = false)
 class OpenApiConfiguration {
@@ -26,7 +28,10 @@ class OpenApiConfiguration {
     private static final String API_KEY = "apiKey";
 
     static {
-        SpringDocUtils.getConfig().replaceWithSchema(JsonNode.class, new ObjectSchema());
+        // any JSON value: evidence is an object or an array depending on its kind
+        SpringDocUtils.getConfig().replaceWithSchema(JsonNode.class, new JsonSchema()
+                .types(new LinkedHashSet<>(List.of("object", "array", "string", "number", "boolean", "null")))
+                .description("Any JSON value"));
     }
 
     @Bean

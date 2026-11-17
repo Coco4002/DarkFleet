@@ -58,7 +58,10 @@ class ReadApiTest extends IntegrationTest {
         // the API description is public and spells out the three proposal payloads
         mvc.perform(get(null, "/v3/api-docs")).andExpect(status().isOk())
                 .andExpect(jsonPath("$.components.schemas.ProposalRequest.properties.payload.oneOf.length()").value(3))
-                .andExpect(jsonPath("$.components.schemas.RuleChangePayload.properties.gapMinutes").exists());
+                .andExpect(jsonPath("$.components.schemas.RuleChangePayload.properties.gapMinutes").exists())
+                // free-form JSON is any value (case evidence holds arrays), not Jackson's JsonNode getters
+                .andExpect(jsonPath("$.components.schemas.JsonNode").doesNotExist())
+                .andExpect(jsonPath("$.components.schemas.EvidenceItem.properties.data.type", hasItem("array")));
     }
 
     @Test

@@ -14,8 +14,10 @@ import java.io.IOException;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
 /**
  * The analysts' live stream (server-sent events). Events go out only after their transaction commits,
@@ -23,7 +25,8 @@ import java.util.concurrent.Executors;
  * {@link #CONNECTION_LIFETIME}; browsers reconnect on their own. A heartbeat every 20 s keeps proxies
  * from closing idle connections. Events are written by one thread of their own, in order: a browser
  * that stops reading can hold up the stream, but never the Kafka consumer or the scheduler that
- * published the event.
+ * published the event. The stream is best effort: when {@link #MAX_QUEUED} events are waiting, new
+ * ones are dropped (analysts can always list detections and proposals).
  */
 @Component
 public class AnalystEvents {
@@ -34,8 +37,11 @@ public class AnalystEvents {
     static final int MAX_CONNECTIONS = 50;
 
     private final List<SseEmitter> emitters = new CopyOnWriteArrayList<>();
-    private final ExecutorService sender = Executors.newSingleThreadExecutor(
-            Thread.ofPlatform().name("analyst-events").daemon().factory());
+    static final int MAX_QUEUED = 1000;
+
+    private final ExecutorService sender = new ThreadPoolExecutor(1, 1, 0, TimeUnit.MILLISECONDS,
+            new ArrayBlockingQueue<>(MAX_QUEUED), Thread.ofPlatform().name("analyst-events").daemon().factory(),
+            (task, executor) -> log.warn("Analyst event stream backed up; dropping an event"));
 
     public SseEmitter connect() {
         if (emitters.size() >= MAX_CONNECTIONS) {
