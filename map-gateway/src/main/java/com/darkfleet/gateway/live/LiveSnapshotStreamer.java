@@ -1,28 +1,33 @@
 package com.darkfleet.gateway.live;
 
-import com.darkfleet.gateway.live.LiveSnapshotStore.LiveSnapshot;
 import com.darkfleet.gateway.web.ApiException;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.http.MediaType;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+import tools.jackson.databind.json.JsonMapper;
 
 import java.io.IOException;
 import java.time.Duration;
-import java.util.List;
-import java.util.concurrent.ArrayBlockingQueue;
-import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Supplier;
 
 /**
  * Public live stream (Server-Sent Events). Sends the current full snapshot of all active vessels
  * immediately on connect and every {@code darkfleet.gateway.snapshot-interval} (~5 s) thereafter,
  * plus a heartbeat comment every 20 s so reverse proxies keep the stream open.
+ * <p>
+ * The snapshot is written to JSON once per tick and shared. Each client is written to on its own
+ * virtual thread, one event at a time: a tick that finds the client still busy is skipped for it
+ * (the next snapshot replaces it anyway), and a client that misses {@link #MAX_MISSED_TICKS} ticks
+ * in a row is disconnected, so a slow browser never holds up the others.
  */
 @Component
 public class LiveSnapshotStreamer {
@@ -30,75 +35,94 @@ public class LiveSnapshotStreamer {
     private static final Logger log = LoggerFactory.getLogger(LiveSnapshotStreamer.class);
     static final Duration CONNECTION_LIFETIME = Duration.ofMinutes(30);
     static final int MAX_CONNECTIONS = 200;
-    static final int MAX_QUEUED = 64;
+    static final int MAX_MISSED_TICKS = 3;
 
     private final LiveSnapshotStore store;
-    private final List<SseEmitter> emitters = new CopyOnWriteArrayList<>();
-    private final ExecutorService sender = new ThreadPoolExecutor(1, 1, 0, TimeUnit.MILLISECONDS,
-            new ArrayBlockingQueue<>(MAX_QUEUED), Thread.ofPlatform().name("live-snapshot-sse").daemon().factory(),
-            (task, executor) -> log.warn("Live snapshot stream backed up; dropping a tick"));
+    private final JsonMapper json;
+    private final Set<Client> clients = ConcurrentHashMap.newKeySet();
+    private final ExecutorService senders = Executors.newVirtualThreadPerTaskExecutor();
 
-    public LiveSnapshotStreamer(LiveSnapshotStore store) {
+    public LiveSnapshotStreamer(LiveSnapshotStore store, JsonMapper json) {
         this.store = store;
+        this.json = json;
     }
 
     public SseEmitter connect() {
-        if (emitters.size() >= MAX_CONNECTIONS) {
+        if (clients.size() >= MAX_CONNECTIONS) {
             throw ApiException.unavailable("Too many open live streams; try again later");
         }
-        SseEmitter emitter = new SseEmitter(CONNECTION_LIFETIME.toMillis());
-        emitter.onCompletion(() -> emitters.remove(emitter));
-        emitter.onTimeout(() -> emitters.remove(emitter));
-        emitter.onError(e -> emitters.remove(emitter));
-        emitters.add(emitter);
-        LiveSnapshot initial = store.snapshot();
-        sender.execute(() -> {
-            send(emitter, SseEmitter.event().comment("connected"));
-            send(emitter, SseEmitter.event().name("snapshot").data(initial, MediaType.APPLICATION_JSON));
-        });
-        return emitter;
+        Client client = new Client(new SseEmitter(CONNECTION_LIFETIME.toMillis()));
+        client.emitter.onCompletion(() -> clients.remove(client));
+        client.emitter.onTimeout(() -> clients.remove(client));
+        client.emitter.onError(e -> clients.remove(client));
+        clients.add(client);
+        String snapshot = snapshotJson();
+        client.offer(() -> SseEmitter.event().name("snapshot").data(snapshot));
+        return client.emitter;
     }
 
     @Scheduled(fixedRateString = "${darkfleet.gateway.snapshot-interval}")
     public void broadcastSnapshot() {
-        if (emitters.isEmpty()) {
+        if (clients.isEmpty()) {
             return;
         }
-        LiveSnapshot snapshot = store.snapshot();
-        sender.execute(() -> {
-            for (SseEmitter emitter : emitters) {
-                send(emitter, SseEmitter.event().name("snapshot").data(snapshot, MediaType.APPLICATION_JSON));
-            }
-        });
+        String snapshot = snapshotJson();
+        clients.forEach(client -> client.offer(() -> SseEmitter.event().name("snapshot").data(snapshot)));
     }
 
     @Scheduled(fixedRate = 20_000)
     public void heartbeat() {
-        if (emitters.isEmpty()) {
-            return;
-        }
-        sender.execute(() -> {
-            for (SseEmitter emitter : emitters) {
-                send(emitter, SseEmitter.event().comment("heartbeat"));
-            }
-        });
+        clients.forEach(client -> client.offer(() -> SseEmitter.event().comment("heartbeat")));
     }
 
     @PreDestroy
     void stop() {
-        sender.shutdownNow();
+        senders.shutdownNow();
     }
 
     public int connections() {
-        return emitters.size();
+        return clients.size();
     }
 
-    private void send(SseEmitter emitter, SseEmitter.SseEventBuilder event) {
-        try {
-            emitter.send(event);
-        } catch (IOException | IllegalStateException e) {
-            emitters.remove(emitter);
-            log.debug("Dropped a live snapshot stream: {}", e.getMessage());
+    private String snapshotJson() {
+        return json.writeValueAsString(store.snapshot());
+    }
+
+    /** Stops serving a client. Completing waits for a write in progress, so it runs off the caller's thread. */
+    private void drop(Client client) {
+        if (clients.remove(client)) {
+            senders.execute(client.emitter::complete);
+        }
+    }
+
+    private final class Client {
+
+        final SseEmitter emitter;
+        final AtomicBoolean sending = new AtomicBoolean();
+        final AtomicInteger missed = new AtomicInteger();
+
+        Client(SseEmitter emitter) {
+            this.emitter = emitter;
+        }
+
+        void offer(Supplier<SseEmitter.SseEventBuilder> event) {
+            if (!sending.compareAndSet(false, true)) {
+                if (missed.incrementAndGet() >= MAX_MISSED_TICKS) {
+                    log.debug("Dropping a live stream that fell {} ticks behind", MAX_MISSED_TICKS);
+                    drop(this);
+                }
+                return;
+            }
+            missed.set(0);
+            senders.execute(() -> {
+                try {
+                    emitter.send(event.get());
+                } catch (IOException | IllegalStateException e) {
+                    drop(this);
+                } finally {
+                    sending.set(false);
+                }
+            });
         }
     }
 }
