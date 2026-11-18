@@ -9,6 +9,10 @@ import org.junit.jupiter.api.Test;
 
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -89,7 +93,7 @@ class WikimediaPhotoClientTest {
         try {
             String url = "http://127.0.0.1:" + server.getAddress().getPort() + "/w/api.php";
             GatewayProperties props = TestProperties.gateway(false, url);
-            WikimediaPhotoClient client = new WikimediaPhotoClient(props);
+            WikimediaPhotoClient client = new WikimediaPhotoClient(props, Clock.systemUTC());
             VesselPhoto photo = client.lookup("9444649");
             assertNotNull(photo);
             assertEquals("Jan Novak", photo.author());
@@ -115,7 +119,7 @@ class WikimediaPhotoClientTest {
         try {
             String url = "http://127.0.0.1:" + server.getAddress().getPort() + "/w/api.php";
             GatewayProperties props = TestProperties.gateway(false, url);
-            WikimediaPhotoClient client = new WikimediaPhotoClient(props);
+            WikimediaPhotoClient client = new WikimediaPhotoClient(props, Clock.systemUTC());
 
             assertNull(client.lookup(null));
             assertNull(client.lookup("not-an-imo"));
@@ -152,13 +156,64 @@ class WikimediaPhotoClientTest {
         server.start();
         try {
             String url = "http://127.0.0.1:" + server.getAddress().getPort() + "/w/api.php";
-            WikimediaPhotoClient client = new WikimediaPhotoClient(TestProperties.gateway(false, url));
+            WikimediaPhotoClient client = new WikimediaPhotoClient(TestProperties.gateway(false, url), Clock.systemUTC());
 
             assertNull(client.lookup("9308065"));
             assertNotNull(client.lookup("9308065"));
             assertEquals(2, requests.get());
         } finally {
             server.stop(0);
+        }
+    }
+
+    @Test
+    void sendsNothingWhileWikimediaAsksToWait() throws Exception {
+        AtomicInteger requests = new AtomicInteger();
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/w/api.php", exchange -> {
+            requests.incrementAndGet();
+            exchange.getResponseHeaders().set("Retry-After", "60");
+            exchange.sendResponseHeaders(429, -1);
+            exchange.close();
+        });
+        server.start();
+        try {
+            String url = "http://127.0.0.1:" + server.getAddress().getPort() + "/w/api.php";
+            MutableClock clock = new MutableClock(Instant.parse("2026-11-18T12:00:00Z"));
+            WikimediaPhotoClient client = new WikimediaPhotoClient(TestProperties.gateway(false, url), clock);
+
+            assertNull(client.lookup("9308065"));
+            assertNull(client.lookup("9444649"));
+            assertEquals(1, requests.get(), "no request while Retry-After is in force");
+
+            clock.now = clock.now.plusSeconds(61);
+            assertNull(client.lookup("9444649"));
+            assertEquals(2, requests.get());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    private static final class MutableClock extends Clock {
+        Instant now;
+
+        MutableClock(Instant now) {
+            this.now = now;
+        }
+
+        @Override
+        public Instant instant() {
+            return now;
+        }
+
+        @Override
+        public ZoneId getZone() {
+            return ZoneOffset.UTC;
+        }
+
+        @Override
+        public Clock withZone(ZoneId zone) {
+            return this;
         }
     }
 }

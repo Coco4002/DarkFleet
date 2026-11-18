@@ -15,10 +15,16 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Pattern;
 
 /**
@@ -26,7 +32,8 @@ import java.util.regex.Pattern;
  * returning the image URL, page URL and author/licence attribution. Results, including "no photo", are
  * cached per IMO number for {@code photoCacheTtl}; simultaneous requests for the same ship make one lookup.
  * A failed lookup is not cached, so the next click tries again. Requests go out one at a time, as Wikimedia
- * asks of API clients. Never uses proprietary ship-photo sites.
+ * asks of API clients, and none go out while a {@code Retry-After} it sent is in force. Never uses proprietary
+ * ship-photo sites.
  */
 @Component
 public class WikimediaPhotoClient {
@@ -51,9 +58,12 @@ public class WikimediaPhotoClient {
     private final HttpClient http;
     private final Cache<String, Optional<VesselPhoto>> cache;
     private final Semaphore oneAtATime = new Semaphore(1);
+    private final AtomicReference<Instant> notBefore = new AtomicReference<>(Instant.EPOCH);
+    private final Clock clock;
 
-    public WikimediaPhotoClient(GatewayProperties properties) {
+    public WikimediaPhotoClient(GatewayProperties properties, Clock clock) {
         this.properties = properties;
+        this.clock = clock;
         this.http = HttpClient.newBuilder()
                 .connectTimeout(properties.wikimediaTimeout())
                 .followRedirects(HttpClient.Redirect.NORMAL)
@@ -108,6 +118,11 @@ public class WikimediaPhotoClient {
                 .header("Accept", "application/json")
                 .GET()
                 .build();
+        if (clock.instant().isBefore(notBefore.get())) {
+            log.debug("Wikimedia photo lookup for {} skipped: Wikimedia asked to wait until {}", categoryTitle,
+                    notBefore.get());
+            return null;
+        }
         try {
             if (!oneAtATime.tryAcquire(properties.wikimediaTimeout().toMillis(), TimeUnit.MILLISECONDS)) {
                 log.debug("Wikimedia photo lookup for {} skipped: other lookups still running", categoryTitle);
@@ -119,6 +134,7 @@ public class WikimediaPhotoClient {
             } finally {
                 oneAtATime.release();
             }
+            response.headers().firstValue("Retry-After").ifPresent(this::waitAsAsked);
             if (response.statusCode() != 200) {
                 log.debug("Wikimedia photo lookup for {} returned HTTP {}", categoryTitle, response.statusCode());
                 return null;
@@ -137,6 +153,23 @@ public class WikimediaPhotoClient {
             log.debug("Wikimedia photo lookup for {} failed: {}", categoryTitle, e.getMessage());
             return null;
         }
+    }
+
+    /** {@code Retry-After} is either seconds or an HTTP date. */
+    private void waitAsAsked(String retryAfter) {
+        Instant until;
+        try {
+            until = clock.instant().plusSeconds(Long.parseLong(retryAfter.trim()));
+        } catch (NumberFormatException e) {
+            try {
+                until = ZonedDateTime.parse(retryAfter.trim(), DateTimeFormatter.RFC_1123_DATE_TIME).toInstant();
+            } catch (DateTimeParseException unreadable) {
+                log.debug("Ignoring unreadable Retry-After from Wikimedia: {}", retryAfter);
+                return;
+            }
+        }
+        Instant asked = until;
+        notBefore.accumulateAndGet(asked, (a, b) -> a.isAfter(b) ? a : b);
     }
 
     static String firstSubcategoryTitle(JsonNode root) {

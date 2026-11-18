@@ -107,10 +107,10 @@ public class PublicMapController {
         if (stat == null && latest == null) {
             throw ApiException.notFound("No vessel with MMSI " + mmsi + " has been seen");
         }
-        Instant now = store.dataTime();
+        Instant end = endingNow();
         List<TrackPointView> trail;
         try {
-            trail = intelligence.vesselTrack(mmsi, now.minus(Duration.ofHours(24)), now);
+            trail = intelligence.vesselTrack(mmsi, end.minus(Duration.ofHours(24)), end);
         } catch (ApiException e) {
             if (e.status() != HttpStatus.SERVICE_UNAVAILABLE) {
                 throw e;
@@ -145,7 +145,7 @@ public class PublicMapController {
     public List<TrackPointView> vesselTrack(@PathVariable String mmsi,
                                             @RequestParam(required = false) Instant from,
                                             @RequestParam(required = false) Instant to) {
-        Instant end = to != null ? to : store.dataTime();
+        Instant end = to != null ? to : endingNow();
         Instant start = from != null ? from : end.minus(Duration.ofHours(24));
         requireInHistoryWindow(start);
         return intelligence.vesselTrack(mmsi, start, end);
@@ -183,6 +183,11 @@ public class PublicMapController {
         if (start.isBefore(earliest)) {
             throw ApiException.badRequest("History reaches back to " + earliest);
         }
+    }
+
+    /** An exclusive end that still includes a point stamped exactly now (in replay: the newest replayed point). */
+    private Instant endingNow() {
+        return store.dataTime().plusMillis(1);
     }
 
     private CacheControl cacheControlForHour(Instant hourStart) {
