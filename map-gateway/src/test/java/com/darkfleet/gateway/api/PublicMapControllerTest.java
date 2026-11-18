@@ -24,6 +24,7 @@ import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.awaitility.Awaitility.await;
@@ -31,7 +32,9 @@ import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.not;
+import static org.hamcrest.Matchers.nullValue;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -40,8 +43,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * Tests the public HTTP and SSE API, security rules, Vessel Intelligence history pass-through and
- * Wikimedia Commons photo attribution without needing a live Kafka container.
+ * The public HTTP and SSE API, security rules, Vessel Intelligence history pass-through and the
+ * Wikimedia Commons photo, with the store filled directly (Kafka ingestion: {@code MapGatewayIntegrationTest}).
  */
 @SpringBootTest(properties = {
         "spring.kafka.listener.auto-startup=false",
@@ -53,6 +56,7 @@ public class PublicMapControllerTest {
     private static final String GATEWAY_KEY = "test-gateway-ro-key";
     private static final String MMSI = "230123456";
     private static final String EXPIRED_MMSI = "273999999";
+    private static final String NO_HISTORY_MMSI = "230999888";
     private static final String IMO = "9308065";
     private static final String CELL = "861126d37ffffff";
 
@@ -70,8 +74,8 @@ public class PublicMapControllerTest {
                           {"time":"2026-11-18T11:30:00Z","latitude":60.10,"longitude":24.95,"sogKnots":12.1,"cogDegrees":90.0,"headingDegrees":90.0,"navStatus":0,"source":"DIGITRAFFIC"}
                         ]""");
             });
-            BACKENDS.createContext("/vi/api/v1/vessels/999999999/track", exchange ->
-                    respondJson(exchange, 200, "[]"));
+            BACKENDS.createContext("/vi/api/v1/vessels/" + NO_HISTORY_MMSI + "/track", exchange ->
+                    respondJson(exchange, 500, "{}"));
             BACKENDS.createContext("/vi/api/v1/vessels/tracks", exchange -> {
                 LAST_VI_API_KEY.set(exchange.getRequestHeaders().getFirst(ApiKeyAuthenticationFilter.HEADER));
                 respondJson(exchange, 200, """
@@ -158,6 +162,7 @@ public class PublicMapControllerTest {
     @Test
     void servesPublicMapEndpointsAndProtectsNonPublicRoutes() throws Exception {
         Instant now = Instant.now();
+        Instant pastHour = now.truncatedTo(ChronoUnit.HOURS).minus(Duration.ofHours(2));
         store.onVesselStatic(new VesselStatic(MMSI, now.minusSeconds(30), AisSource.DIGITRAFFIC,
                 IMO, "BALTIC EXPRESS", "OJBX", 80, 11.4, "PRIMORSK", 244, 42, now.plus(Duration.ofHours(6))));
         store.onTrackPoint(new TrackPoint(EXPIRED_MMSI, now.minus(Duration.ofHours(2)), 59.5, 24.0, 8.0, 180.0,
@@ -167,8 +172,8 @@ public class PublicMapControllerTest {
         store.onFeedHealth(new FeedHealth(AisSource.DIGITRAFFIC, now.minusSeconds(5), 30, true, 1050, 1000,
                 now.minusSeconds(1), 50000, 0, 0));
 
-        // Anonymous GET on snapshot
-        mvc.perform(get("/api/v1/snapshot"))
+        // Snapshot: the active vessel with merged static data and flag; the one silent for 2 h has expired
+        mvc.perform(get("/api/v1/map/snapshot"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.vessels[*].mmsi", hasItem(MMSI)))
                 .andExpect(jsonPath("$.vessels[*].mmsi", not(hasItem(EXPIRED_MMSI))))
@@ -180,16 +185,17 @@ public class PublicMapControllerTest {
                 .andExpect(jsonPath("$.feeds[0].source").value("DIGITRAFFIC"))
                 .andExpect(jsonPath("$.feeds[0].stale").value(false));
 
-        // Anonymous GET on SSE stream
-        MvcResult sse = mvc.perform(get("/api/v1/live"))
+        // Live stream: the snapshot arrives at once, as a JSON object in a "snapshot" event
+        MvcResult sse = mvc.perform(get("/api/v1/map/live"))
                 .andExpect(status().isOk())
                 .andExpect(request().asyncStarted())
                 .andReturn();
         await().atMost(Duration.ofSeconds(5)).pollInterval(Duration.ofMillis(50))
                 .until(() -> sse.getResponse().getContentAsString().contains("BALTIC EXPRESS"));
+        assertTrue(sse.getResponse().getContentAsString().contains("event:snapshot\ndata:{\"emittedAt\""));
 
-        // Anonymous GET on public ship panel
-        mvc.perform(get("/api/v1/vessels/{mmsi}", MMSI))
+        // Ship panel: Kafka static data, flag, the 24 h trail from VI and the Wikimedia photo
+        mvc.perform(get("/api/v1/map/vessels/{mmsi}", MMSI))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.mmsi").value(MMSI))
                 .andExpect(jsonPath("$.name").value("BALTIC EXPRESS"))
@@ -200,39 +206,55 @@ public class PublicMapControllerTest {
                 .andExpect(jsonPath("$.lengthMeters").value(244))
                 .andExpect(jsonPath("$.beamMeters").value(42))
                 .andExpect(jsonPath("$.destination").value("PRIMORSK"))
+                .andExpect(jsonPath("$.lastPosition.latitude").value(60.10))
                 .andExpect(jsonPath("$.trail.length()").value(2))
                 .andExpect(jsonPath("$.photo.imageUrl").value("https://upload.wikimedia.org/commons/thumb/baltic.jpg"))
                 .andExpect(jsonPath("$.photo.credit").value("Wikimedia Commons / Matti Meikalainen (CC BY 4.0)"));
         assertEquals(GATEWAY_KEY, LAST_VI_API_KEY.get());
 
-        // Unknown vessel returns 404; invalid MMSI returns 400
-        mvc.perform(get("/api/v1/vessels/999999999")).andExpect(status().isNotFound());
-        mvc.perform(get("/api/v1/vessels/not-an-mmsi")).andExpect(status().isBadRequest());
+        // History down: the panel still shows what the gateway knows, with the trail marked unavailable (null)
+        store.onVesselStatic(new VesselStatic(NO_HISTORY_MMSI, now.minusSeconds(30), AisSource.AISSTREAM,
+                null, "NO HISTORY", null, 70, null, null, null, null, null));
+        mvc.perform(get("/api/v1/map/vessels/{mmsi}", NO_HISTORY_MMSI))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.name").value("NO HISTORY"))
+                .andExpect(jsonPath("$.lastPosition").value(nullValue()))
+                .andExpect(jsonPath("$.trail").value(nullValue()));
 
-        // Anonymous GET on 1-minute vessel track
-        mvc.perform(get("/api/v1/vessels/{mmsi}/track?from=2026-11-18T10:00:00Z&to=2026-11-18T12:00:00Z", MMSI))
+        // Never seen: 404 without asking VI; not an MMSI: 400
+        mvc.perform(get("/api/v1/map/vessels/999999999")).andExpect(status().isNotFound());
+        mvc.perform(get("/api/v1/map/vessels/not-an-mmsi")).andExpect(status().isBadRequest());
+
+        // One ship's full track
+        mvc.perform(get("/api/v1/map/vessels/{mmsi}/track?from={from}&to={to}", MMSI,
+                        now.minus(Duration.ofHours(2)), now))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(2));
 
-        // Anonymous GET on coarse all-ships hourly history
-        mvc.perform(get("/api/v1/history/tracks?hour=2026-11-12T10:25:00Z"))
+        // Coarse all-ships history and coverage for a past hour, with a short public Cache-Control
+        mvc.perform(get("/api/v1/map/history/tracks?hour={hour}", pastHour.plus(Duration.ofMinutes(25))))
                 .andExpect(status().isOk())
                 .andExpect(header().string(HttpHeaders.CACHE_CONTROL, containsString("max-age=60")))
-                .andExpect(jsonPath("$.hourStart").value("2026-11-12T10:00:00Z"))
                 .andExpect(jsonPath("$.vessels[0].mmsi").value(MMSI))
                 .andExpect(jsonPath("$.vessels[0].points.length()").value(2));
-
-        // Anonymous GET on H3 coverage hour
-        mvc.perform(get("/api/v1/coverage?hour=2026-11-12T10:00:00Z"))
+        mvc.perform(get("/api/v1/map/coverage?hour={hour}", pastHour))
                 .andExpect(status().isOk())
                 .andExpect(header().string(HttpHeaders.CACHE_CONTROL, containsString("max-age=60")))
                 .andExpect(jsonPath("$[0].h3Cell").value(CELL))
                 .andExpect(jsonPath("$[0].positionsBySource.DIGITRAFFIC").value(320));
 
-        // OpenAPI docs are public; POST or unlisted paths require authentication
+        // Older than 7 days: only points kept around detections exist there, so the public is refused
+        Instant eightDaysAgo = now.minus(Duration.ofDays(8));
+        mvc.perform(get("/api/v1/map/history/tracks?hour={hour}", eightDaysAgo)).andExpect(status().isBadRequest());
+        mvc.perform(get("/api/v1/map/coverage?hour={hour}", eightDaysAgo)).andExpect(status().isBadRequest());
+        mvc.perform(get("/api/v1/map/vessels/{mmsi}/track?from={from}&to={to}", MMSI,
+                        eightDaysAgo, eightDaysAgo.plus(Duration.ofHours(24))))
+                .andExpect(status().isBadRequest());
+
+        // OpenAPI docs are public; anything but GET on the map API, or another path, needs a key
         mvc.perform(get("/v3/api-docs")).andExpect(status().isOk())
                 .andExpect(jsonPath("$.info.title").value("DarkFleet Map Gateway"));
-        mvc.perform(post("/api/v1/snapshot")).andExpect(status().isUnauthorized());
+        mvc.perform(post("/api/v1/map/snapshot")).andExpect(status().isUnauthorized());
         mvc.perform(get("/api/v1/detections")).andExpect(status().isUnauthorized());
     }
 

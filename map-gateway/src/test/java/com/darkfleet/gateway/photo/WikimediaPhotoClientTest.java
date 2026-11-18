@@ -2,16 +2,13 @@ package com.darkfleet.gateway.photo;
 
 import com.darkfleet.common.kafka.JsonSerde;
 import com.darkfleet.gateway.GatewayProperties;
+import com.darkfleet.gateway.TestProperties;
 import com.darkfleet.gateway.photo.WikimediaPhotoClient.VesselPhoto;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.Test;
 
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
-import java.time.Clock;
-import java.time.Duration;
-import java.time.Instant;
-import java.time.ZoneOffset;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -91,11 +88,8 @@ class WikimediaPhotoClientTest {
         server.start();
         try {
             String url = "http://127.0.0.1:" + server.getAddress().getPort() + "/w/api.php";
-            GatewayProperties props = new GatewayProperties(false, Duration.ofHours(1), Duration.ofSeconds(5),
-                    Duration.ofMinutes(2), "http://localhost:8086", "", Duration.ofSeconds(5),
-                    url, Duration.ofSeconds(5), Duration.ofHours(24));
-            WikimediaPhotoClient client = new WikimediaPhotoClient(
-                    props, Clock.fixed(Instant.parse("2026-11-18T12:00:00Z"), ZoneOffset.UTC));
+            GatewayProperties props = TestProperties.gateway(false, url);
+            WikimediaPhotoClient client = new WikimediaPhotoClient(props);
             VesselPhoto photo = client.lookup("9444649");
             assertNotNull(photo);
             assertEquals("Jan Novak", photo.author());
@@ -120,11 +114,8 @@ class WikimediaPhotoClientTest {
         server.start();
         try {
             String url = "http://127.0.0.1:" + server.getAddress().getPort() + "/w/api.php";
-            GatewayProperties props = new GatewayProperties(false, Duration.ofHours(1), Duration.ofSeconds(5),
-                    Duration.ofMinutes(2), "http://localhost:8086", "", Duration.ofSeconds(5),
-                    url, Duration.ofSeconds(5), Duration.ofHours(24));
-            Clock clock = Clock.fixed(Instant.parse("2026-11-18T12:00:00Z"), ZoneOffset.UTC);
-            WikimediaPhotoClient client = new WikimediaPhotoClient(props, clock);
+            GatewayProperties props = TestProperties.gateway(false, url);
+            WikimediaPhotoClient client = new WikimediaPhotoClient(props);
 
             assertNull(client.lookup(null));
             assertNull(client.lookup("not-an-imo"));
@@ -135,6 +126,31 @@ class WikimediaPhotoClientTest {
             assertNotNull(first);
             assertEquals(first, second);
             assertEquals(1, requests.get(), "Second lookup for the same IMO must come from the cache");
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void aFailedLookupIsTriedAgainNextTime() throws Exception {
+        AtomicInteger requests = new AtomicInteger();
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/w/api.php", exchange -> {
+            boolean fail = requests.incrementAndGet() == 1;
+            byte[] body = (fail ? "{}" : SAMPLE_JSON).getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().set("Content-Type", "application/json");
+            exchange.sendResponseHeaders(fail ? 503 : 200, body.length);
+            exchange.getResponseBody().write(body);
+            exchange.close();
+        });
+        server.start();
+        try {
+            String url = "http://127.0.0.1:" + server.getAddress().getPort() + "/w/api.php";
+            WikimediaPhotoClient client = new WikimediaPhotoClient(TestProperties.gateway(false, url));
+
+            assertNull(client.lookup("9308065"));
+            assertNotNull(client.lookup("9308065"));
+            assertEquals(2, requests.get());
         } finally {
             server.stop(0);
         }

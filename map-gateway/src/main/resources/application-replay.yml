@@ -1,10 +1,5 @@
 # Replay mode: reads the replay.* topics Track & Detection writes from replayed data and queries
 # the replay Vessel Intelligence instance.
-spring:
-  kafka:
-    consumer:
-      group-id: darkfleet-map-gateway-replay
-
 darkfleet:
   gateway:
     replay: true

@@ -1,6 +1,7 @@
 package com.darkfleet.gateway.api;
 
 import com.darkfleet.common.model.TrackPoint;
+import com.darkfleet.gateway.GatewayProperties;
 import com.darkfleet.gateway.flag.MmsiFlag;
 import com.darkfleet.gateway.intelligence.IntelligenceClient;
 import com.darkfleet.gateway.intelligence.IntelligenceClient.CoverageView;
@@ -17,6 +18,7 @@ import com.darkfleet.gateway.web.ApiException;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.http.CacheControl;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -33,7 +35,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.List;
 
 @RestController
-@RequestMapping("/api/v1")
+@RequestMapping("/api/v1/map")
 @Tag(name = "Public Map")
 public class PublicMapController {
 
@@ -64,11 +66,13 @@ public class PublicMapController {
     private final LiveSnapshotStreamer streamer;
     private final IntelligenceClient intelligence;
     private final WikimediaPhotoClient photos;
+    private final GatewayProperties properties;
     private final Clock clock;
 
-    public PublicMapController(LiveSnapshotStore store, LiveSnapshotStreamer streamer,
-                               IntelligenceClient intelligence, WikimediaPhotoClient photos, Clock clock) {
+    public PublicMapController(LiveSnapshotStore store, LiveSnapshotStreamer streamer, IntelligenceClient intelligence,
+                               WikimediaPhotoClient photos, GatewayProperties properties, Clock clock) {
         this.store = store;
+        this.properties = properties;
         this.streamer = streamer;
         this.intelligence = intelligence;
         this.photos = photos;
@@ -94,29 +98,27 @@ public class PublicMapController {
     }
 
     @GetMapping("/vessels/{mmsi}")
-    @Operation(summary = "Public ship panel: identity, flag, dimensions, voyage, last-24 h trail and Wikimedia Commons photo")
+    @Operation(summary = "Public ship panel: identity, flag, dimensions, voyage, last-24 h trail and Wikimedia Commons photo. "
+            + "lastPosition is null when the ship is not on the live map; trail is null when history is unavailable.")
     public PublicVesselPanel vesselPanel(@PathVariable String mmsi) {
         IntelligenceClient.requireMmsi(mmsi);
         MergedStatic stat = store.staticData(mmsi);
         TrackPoint latest = store.latestPosition(mmsi);
+        if (stat == null && latest == null) {
+            throw ApiException.notFound("No vessel with MMSI " + mmsi + " has been seen");
+        }
         Instant now = clock.instant();
         List<TrackPointView> trail;
         try {
             trail = intelligence.vesselTrack(mmsi, now.minus(Duration.ofHours(24)), now);
         } catch (ApiException e) {
-            if (stat == null && latest == null) {
+            if (e.status() != HttpStatus.SERVICE_UNAVAILABLE) {
                 throw e;
             }
-            trail = latest != null ? List.of(toTrackPointView(latest)) : List.of();
+            trail = null;
         }
-        if (stat == null && latest == null && trail.isEmpty()) {
-            throw ApiException.notFound("No vessel with MMSI " + mmsi + " has been seen");
-        }
-        TrackPointView lastPos = latest != null ? toTrackPointView(latest)
-                : trail.isEmpty() ? null : trail.getLast();
         MmsiFlag.Flag flag = MmsiFlag.resolve(mmsi);
         String imo = stat == null ? null : stat.imo();
-        VesselPhoto photo = photos.lookup(imo);
         return new PublicVesselPanel(
                 mmsi,
                 stat == null ? null : stat.name(),
@@ -131,40 +133,55 @@ public class PublicMapController {
                 stat == null ? null : stat.destination(),
                 stat == null ? null : stat.eta(),
                 stat == null ? null : stat.reportedAt(),
-                lastPos,
+                latest == null ? null : toTrackPointView(latest),
                 trail,
-                photo
+                photos.lookup(imo)
         );
     }
 
     @GetMapping("/vessels/{mmsi}/track")
-    @Operation(summary = "Full 1-minute track of one vessel in [from, to), at most 48 hours; defaults to the last 24 hours")
+    @Operation(summary = "Full 1-minute track of one vessel in [from, to), at most 48 hours and within the last 7 days; "
+            + "defaults to the last 24 hours")
     public List<TrackPointView> vesselTrack(@PathVariable String mmsi,
                                             @RequestParam(required = false) Instant from,
                                             @RequestParam(required = false) Instant to) {
         Instant end = to != null ? to : clock.instant();
         Instant start = from != null ? from : end.minus(Duration.ofHours(24));
+        requireInHistoryWindow(start);
         return intelligence.vesselTrack(mmsi, start, end);
     }
 
     @GetMapping("/history/tracks")
-    @Operation(summary = "Coarse all-ships track history (1 point / 5 min) for the hour containing the given time")
+    @Operation(summary = "Coarse all-ships track history (1 point / 5 min) for the hour containing the given time, "
+            + "within the last 7 days")
     public ResponseEntity<HistoryHourView> historyHour(@RequestParam Instant hour) {
         Instant truncated = hour.truncatedTo(ChronoUnit.HOURS);
-        HistoryHourView view = intelligence.historyHour(truncated);
+        requireInHistoryWindow(truncated);
         return ResponseEntity.ok()
                 .cacheControl(cacheControlForHour(truncated))
-                .body(view);
+                .body(intelligence.historyHour(truncated));
     }
 
     @GetMapping("/coverage")
-    @Operation(summary = "Reception statistics per H3 cell (resolution 6) for the hour containing the given time")
+    @Operation(summary = "Reception statistics per H3 cell (resolution 6) for the hour containing the given time, "
+            + "within the last 7 days")
     public ResponseEntity<List<CoverageView>> coverageHour(@RequestParam Instant hour) {
         Instant truncated = hour.truncatedTo(ChronoUnit.HOURS);
-        List<CoverageView> cells = intelligence.coverageHour(truncated);
+        requireInHistoryWindow(truncated);
         return ResponseEntity.ok()
                 .cacheControl(cacheControlForHour(truncated))
-                .body(cells);
+                .body(intelligence.coverageHour(truncated));
+    }
+
+    /**
+     * Ordinary track points are deleted after the window; older ones exist only around detections,
+     * so serving them would tell the public which ships had one.
+     */
+    private void requireInHistoryWindow(Instant start) {
+        Instant earliest = clock.instant().minus(properties.historyWindow()).truncatedTo(ChronoUnit.HOURS);
+        if (start.isBefore(earliest)) {
+            throw ApiException.badRequest("History reaches back to " + earliest);
+        }
     }
 
     private CacheControl cacheControlForHour(Instant hourStart) {

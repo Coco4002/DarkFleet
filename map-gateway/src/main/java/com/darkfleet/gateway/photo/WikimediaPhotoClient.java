@@ -2,6 +2,8 @@ package com.darkfleet.gateway.photo;
 
 import com.darkfleet.common.kafka.JsonSerde;
 import com.darkfleet.gateway.GatewayProperties;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -13,19 +15,15 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
-import java.time.Clock;
-import java.time.Duration;
-import java.time.Instant;
 import java.util.Locale;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.Optional;
 import java.util.regex.Pattern;
 
 /**
  * Looks up a freely licensed vessel photo on Wikimedia Commons under {@code Category:IMO <7 digits>},
- * returning the image URL, page URL and author/licence attribution. Results (including "no photo found")
- * are cached in memory so clicking the same ship never hammers Wikimedia. Never falls back to proprietary
- * ship-photo sites.
+ * returning the image URL, page URL and author/licence attribution. Results, including "no photo", are
+ * cached per IMO number for {@code photoCacheTtl}; simultaneous requests for the same ship make one lookup.
+ * A failed lookup is not cached, so the next click tries again. Never uses proprietary ship-photo sites.
  */
 @Component
 public class WikimediaPhotoClient {
@@ -33,7 +31,8 @@ public class WikimediaPhotoClient {
     private static final Logger log = LoggerFactory.getLogger(WikimediaPhotoClient.class);
     private static final Pattern VALID_IMO = Pattern.compile("[1-9][0-9]{6}");
     private static final Pattern HTML_TAGS = Pattern.compile("<[^>]*>");
-    private static final int MAX_CACHE_ENTRIES = 5_000;
+    /** More than the ships with an IMO number seen in a week across the region. */
+    private static final int MAX_CACHE_ENTRIES = 10_000;
 
     public record VesselPhoto(
             String imageUrl,
@@ -45,62 +44,51 @@ public class WikimediaPhotoClient {
     ) {
     }
 
-    private record CachedPhoto(VesselPhoto photo, Instant expiresAt) {
-    }
-
     private final GatewayProperties properties;
-    private final Clock clock;
     private final HttpClient http;
-    private final Map<String, CachedPhoto> cache = new ConcurrentHashMap<>();
+    private final Cache<String, Optional<VesselPhoto>> cache;
 
-    public WikimediaPhotoClient(GatewayProperties properties, Clock clock) {
+    public WikimediaPhotoClient(GatewayProperties properties) {
         this.properties = properties;
-        this.clock = clock;
         this.http = HttpClient.newBuilder()
                 .connectTimeout(properties.wikimediaTimeout())
                 .followRedirects(HttpClient.Redirect.NORMAL)
+                .build();
+        this.cache = Caffeine.newBuilder()
+                .expireAfterWrite(properties.photoCacheTtl())
+                .maximumSize(MAX_CACHE_ENTRIES)
                 .build();
     }
 
     /**
      * Returns a freely licensed Wikimedia Commons photo for {@code imoNumber}, or {@code null} when
-     * the vessel has no IMO number, Wikimedia has no photo in {@code Category:IMO nnnnnnn}, or the
-     * lookup fails (the UI then renders its ship-type silhouette fallback).
+     * the vessel has no valid IMO number, Wikimedia has no photo in {@code Category:IMO nnnnnnn}, or the
+     * lookup fails (the UI then draws the ship-type silhouette).
      */
     public VesselPhoto lookup(String imoNumber) {
         if (imoNumber == null || !VALID_IMO.matcher(imoNumber).matches()) {
             return null;
         }
-        if (properties.wikimediaApiUrl().isBlank()) {
-            return null;
-        }
-        Instant now = clock.instant();
-        CachedPhoto cached = cache.get(imoNumber);
-        if (cached != null && now.isBefore(cached.expiresAt())) {
-            return cached.photo();
-        }
-        if (cache.size() >= MAX_CACHE_ENTRIES) {
-            cache.entrySet().removeIf(e -> !now.isBefore(e.getValue().expiresAt()));
-        }
-        VesselPhoto fetched = fetch(imoNumber);
-        Duration ttl = fetched != null ? properties.photoCacheTtl()
-                : min(properties.photoCacheTtl(), Duration.ofHours(1));
-        cache.put(imoNumber, new CachedPhoto(fetched, now.plus(ttl)));
-        return fetched;
+        Optional<VesselPhoto> photo = cache.get(imoNumber, this::fetch);
+        return photo == null ? null : photo.orElse(null);
     }
 
-    private VesselPhoto fetch(String imoNumber) {
-        String categoryTitle = "Category:IMO " + imoNumber;
-        JsonNode root = queryCategory(categoryTitle);
+    /** The photo, empty when Commons has none, or {@code null} when a request failed (not cached). */
+    private Optional<VesselPhoto> fetch(String imoNumber) {
+        JsonNode root = queryCategory("Category:IMO " + imoNumber);
+        if (root == null) {
+            return null;
+        }
         VesselPhoto direct = parseResponse(root);
         if (direct != null) {
-            return direct;
+            return Optional.of(direct);
         }
         String subcategory = firstSubcategoryTitle(root);
         if (subcategory == null) {
-            return null;
+            return Optional.empty();
         }
-        return parseResponse(queryCategory(subcategory));
+        JsonNode sub = queryCategory(subcategory);
+        return sub == null ? null : Optional.ofNullable(parseResponse(sub));
     }
 
     private JsonNode queryCategory(String categoryTitle) {
@@ -235,7 +223,4 @@ public class WikimediaPhotoClient {
         return sb.toString();
     }
 
-    private static Duration min(Duration a, Duration b) {
-        return a.compareTo(b) <= 0 ? a : b;
-    }
 }

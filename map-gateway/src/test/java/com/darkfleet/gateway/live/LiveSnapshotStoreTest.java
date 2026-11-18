@@ -5,6 +5,7 @@ import com.darkfleet.common.model.FeedHealth;
 import com.darkfleet.common.model.TrackPoint;
 import com.darkfleet.common.model.VesselStatic;
 import com.darkfleet.gateway.GatewayProperties;
+import com.darkfleet.gateway.TestProperties;
 import com.darkfleet.gateway.live.LiveSnapshotStore.FeedHealthView;
 import com.darkfleet.gateway.live.LiveSnapshotStore.LiveSnapshot;
 import com.darkfleet.gateway.live.LiveSnapshotStore.LiveVesselView;
@@ -14,6 +15,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -56,7 +58,38 @@ class LiveSnapshotStoreTest {
         assertEquals("Finland", v.flagCountry());
         assertEquals(60.1, v.latitude(), 1e-9);
 
-        assertEquals(1, store.evictExpired(T0));
+        store.evictExpired();
+        assertEquals(null, store.latestPosition("273000009"));
+        assertEquals("FINNISH STAR", store.staticData(mmsi).name());
+    }
+
+    @Test
+    void forgetsIdentitiesOnceOlderThanTheTopicRetention() {
+        LiveSnapshotStore store = new LiveSnapshotStore(properties(false), Clock.fixed(T0, ZoneOffset.UTC));
+        store.onVesselStatic(new VesselStatic("230000001", T0.minus(Duration.ofDays(8)), AisSource.AISSTREAM,
+                null, "GONE", null, 70, null, null, null, null, null));
+        store.onVesselStatic(new VesselStatic("230000002", T0.minus(Duration.ofDays(6)), AisSource.AISSTREAM,
+                null, "STILL HERE", null, 70, null, null, null, null, null));
+
+        store.evictExpired();
+
+        assertEquals(null, store.staticData("230000001"));
+        assertEquals("STILL HERE", store.staticData("230000002").name());
+    }
+
+    @Test
+    void replayExpiresShipsAgainstTheNewestReplayedPosition() {
+        // the wall clock is irrelevant in replay: the replayed day is weeks old
+        LiveSnapshotStore store = new LiveSnapshotStore(properties(true), Clock.fixed(T0, ZoneOffset.UTC));
+        Instant replayed = Instant.parse("2026-11-11T08:00:00Z");
+        store.onTrackPoint(new TrackPoint("219000001", replayed.minus(Duration.ofHours(3)), 55.5, 11.0, 10.0, 90.0,
+                90.0, 0, AisSource.DMA_REPLAY, "861f1d4a7ffffff"));
+        store.onTrackPoint(new TrackPoint("219000002", replayed, 55.6, 11.1, 10.0, 90.0, 90.0, 0,
+                AisSource.DMA_REPLAY, "861f1d4a7ffffff"));
+
+        assertEquals(List.of("219000002"), store.snapshot().vessels().stream().map(LiveVesselView::mmsi).toList());
+        store.evictExpired();
+        assertEquals(null, store.latestPosition("219000001"));
     }
 
     @Test
@@ -78,7 +111,6 @@ class LiveSnapshotStoreTest {
     }
 
     private static GatewayProperties properties(boolean replay) {
-        return new GatewayProperties(replay, Duration.ofHours(1), Duration.ofSeconds(5), Duration.ofMinutes(2),
-                "http://localhost:8086", "", Duration.ofSeconds(5), "", Duration.ofSeconds(5), Duration.ofHours(1));
+        return TestProperties.gateway(replay, "http://localhost/w/api.php");
     }
 }

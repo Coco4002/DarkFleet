@@ -9,7 +9,7 @@ spring:
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
     consumer:
-      group-id: darkfleet-map-gateway
+      # every start rewinds the topics itself (GatewayKafkaListeners), so nothing is committed
       auto-offset-reset: earliest
       # Track & Detection writes in transactions; never read what an aborted one wrote
       isolation-level: read-committed
@@ -17,7 +17,7 @@ spring:
       value-deserializer: org.apache.kafka.common.serialization.ByteArrayDeserializer
     listener:
       type: batch
-      ack-mode: batch
+      ack-mode: manual
   mvc:
     problemdetails:
       enabled: true
@@ -39,23 +39,19 @@ management:
 darkfleet:
   security:
     public-get-paths:
-      - /api/v1/live
-      - /api/v1/snapshot
-      - /api/v1/feeds
-      - /api/v1/vessels/*
-      - /api/v1/vessels/*/track
-      - /api/v1/history/tracks
-      - /api/v1/coverage
+      - /api/v1/map/**
   gateway:
     replay: false
     vessel-expiry: 1h
+    static-expiry: 7d
+    history-window: 7d
     snapshot-interval: 5s
     feed-stale-after: 2m
     intelligence-url: ${DARKFLEET_INTELLIGENCE_URL:http://localhost:8086}
-    intelligence-api-key: ${DARKFLEET_GATEWAY_API_KEY:}
+    intelligence-api-key: ${DARKFLEET_GATEWAY_API_KEY}
     intelligence-timeout: 15s
     wikimedia-api-url: ${DARKFLEET_WIKIMEDIA_API_URL:https://commons.wikimedia.org/w/api.php}
-    wikimedia-timeout: 5s
+    wikimedia-timeout: 3s
     photo-cache-ttl: 24h
 
 springdoc:

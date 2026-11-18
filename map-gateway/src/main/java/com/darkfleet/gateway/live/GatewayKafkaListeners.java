@@ -30,6 +30,7 @@ import java.util.Map;
  *       (or to the beginning in replay mode, where replayed timestamps are historical), so the live map recovers
  *       within seconds of a gateway restart without loading 7 days of positions.</li>
  * </ul>
+ * Every instance reads every partition (its own random consumer group) and commits nothing.
  */
 @Component
 class GatewayKafkaListeners implements ConsumerSeekAware {
@@ -73,6 +74,9 @@ class GatewayKafkaListeners implements ConsumerSeekAware {
             return;
         }
         Instant since = clock.instant().minus(properties.vesselExpiry());
+        // A partition with nothing newer than the cutoff is left where it was by the timestamp seek
+        // (here: the beginning), so move it to the end first. Seeks are applied in order.
+        callback.seekToEnd(trackPartitions);
         callback.seekToTimestamp(trackPartitions, since.toEpochMilli());
     }
 

@@ -16,12 +16,14 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * In-memory live state built exclusively from Kafka events ({@code vessel.static}, {@code track.points},
  * {@code feed.health}). Vessels whose last position report is older than {@code vesselExpiry} (1 hour)
- * expire from the live snapshot; their static data stays in memory so a ship that reports again later
- * immediately carries its name, IMO number and dimensions.
+ * expire from the live snapshot; their static data stays for {@code staticExpiry} (the topic's retention)
+ * so a ship that reports again later immediately carries its name, IMO number and dimensions.
+ * Ages are measured against the wall clock, or in replay mode against the newest replayed position.
  */
 @Component
 public class LiveSnapshotStore {
@@ -89,6 +91,8 @@ public class LiveSnapshotStore {
     private final Map<String, TrackPoint> latestPositions = new ConcurrentHashMap<>();
     private final Map<String, MergedStatic> staticByMmsi = new ConcurrentHashMap<>();
     private final Map<AisSource, FeedHealth> feedHealth = new ConcurrentHashMap<>();
+    /** Newest position time seen; the replay clock. Starts at the epoch, so nothing expires before data arrives. */
+    private final AtomicReference<Instant> newestPosition = new AtomicReference<>(Instant.EPOCH);
 
     public LiveSnapshotStore(GatewayProperties properties, Clock clock) {
         this.properties = properties;
@@ -102,6 +106,7 @@ public class LiveSnapshotStore {
         }
         latestPositions.compute(point.mmsi(), (mmsi, current) ->
                 current == null || point.time().isAfter(current.time()) ? point : current);
+        newestPosition.accumulateAndGet(point.time(), (a, b) -> a.isAfter(b) ? a : b);
     }
 
     /**
@@ -125,33 +130,22 @@ public class LiveSnapshotStore {
                 current == null || !health.emittedAt().isBefore(current.emittedAt()) ? health : current);
     }
 
-    /** Removes vessels whose latest position report is older than {@code vesselExpiry} relative to {@code referenceTime}. */
-    public int evictExpired(Instant referenceTime) {
-        Instant cutoff = referenceTime.minus(properties.vesselExpiry());
-        int[] removed = {0};
-        latestPositions.entrySet().removeIf(entry -> {
-            if (entry.getValue().time().isBefore(cutoff)) {
-                removed[0]++;
-                return true;
-            }
-            return false;
-        });
-        return removed[0];
-    }
-
+    /** Removes positions older than {@code vesselExpiry} and identities older than {@code staticExpiry}. */
     @Scheduled(fixedDelay = 30_000)
-    void scheduledEviction() {
-        if (!properties.replay()) {
-            evictExpired(clock.instant());
-        }
+    public void evictExpired() {
+        Instant now = dataTime();
+        Instant positionCutoff = now.minus(properties.vesselExpiry());
+        Instant staticCutoff = now.minus(properties.staticExpiry());
+        latestPositions.values().removeIf(p -> p.time().isBefore(positionCutoff));
+        staticByMmsi.values().removeIf(s -> s.reportedAt().isBefore(staticCutoff));
     }
 
     /** Builds the current snapshot of all non-expired vessels and live feed statuses. */
     public LiveSnapshot snapshot() {
         Instant now = clock.instant();
-        Instant cutoff = properties.replay() ? null : now.minus(properties.vesselExpiry());
+        Instant cutoff = dataTime().minus(properties.vesselExpiry());
         List<LiveVesselView> vessels = latestPositions.values().stream()
-                .filter(p -> cutoff == null || !p.time().isBefore(cutoff))
+                .filter(p -> !p.time().isBefore(cutoff))
                 .sorted(Comparator.comparing(TrackPoint::mmsi))
                 .map(p -> toLiveVessel(p, staticByMmsi.get(p.mmsi())))
                 .toList();
@@ -176,6 +170,11 @@ public class LiveSnapshotStore {
                             h.lastMessageAt(), h.messagesInInterval(), h.positionsInInterval());
                 })
                 .toList();
+    }
+
+    /** The time vessel ages are measured against: the wall clock live, the newest replayed position in replay. */
+    private Instant dataTime() {
+        return properties.replay() ? newestPosition.get() : clock.instant();
     }
 
     public TrackPoint latestPosition(String mmsi) {

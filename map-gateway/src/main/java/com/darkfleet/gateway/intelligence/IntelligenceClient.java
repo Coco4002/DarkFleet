@@ -4,6 +4,8 @@ import com.darkfleet.common.kafka.JsonSerde;
 import com.darkfleet.gateway.GatewayProperties;
 import com.darkfleet.gateway.web.ApiException;
 import com.darkfleet.security.ApiKeyAuthenticationFilter;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -27,6 +29,10 @@ import java.util.regex.Pattern;
  * Read-only HTTP client to Vessel Intelligence. Passes through track history, coarse all-ships
  * hourly tracks for the time slider, and hourly H3 cell coverage using the gateway's read-only API key.
  * Has no database credentials and never calls detections, cases, watchlist or proposals.
+ * <p>
+ * Hourly history and coverage are the same for every visitor, so they are kept for {@link #HOUR_CACHE_TTL}
+ * (matching the current hour's Cache-Control): repeated or simultaneous requests for an hour make one
+ * Vessel Intelligence query. Failures are not cached.
  */
 @Component
 public class IntelligenceClient {
@@ -34,6 +40,9 @@ public class IntelligenceClient {
     private static final Logger log = LoggerFactory.getLogger(IntelligenceClient.class);
     private static final Pattern MMSI = Pattern.compile("\\d{9}");
     public static final Duration MAX_TRACK_WINDOW = Duration.ofHours(48);
+    static final Duration HOUR_CACHE_TTL = Duration.ofSeconds(15);
+    /** A browser fetches the hour under the slider and its neighbours; a few hours cover several visitors. */
+    static final int HOUR_CACHE_SIZE = 6;
 
     public record TrackPointView(
             Instant time,
@@ -80,6 +89,8 @@ public class IntelligenceClient {
 
     private final GatewayProperties properties;
     private final HttpClient http;
+    private final Cache<Instant, HistoryHourView> historyHours = hourCache();
+    private final Cache<Instant, List<CoverageView>> coverageHours = hourCache();
 
     public IntelligenceClient(GatewayProperties properties) {
         this.properties = properties;
@@ -104,15 +115,17 @@ public class IntelligenceClient {
     }
 
     public HistoryHourView historyHour(Instant hour) {
-        Instant truncated = hour.truncatedTo(ChronoUnit.HOURS);
-        byte[] body = get("/api/v1/vessels/tracks?hour=" + encode(truncated.toString()));
-        return JsonSerde.mapper().readValue(body, HistoryHourView.class);
+        return historyHours.get(hour.truncatedTo(ChronoUnit.HOURS), start -> JsonSerde.mapper().readValue(
+                get("/api/v1/vessels/tracks?hour=" + encode(start.toString())), HistoryHourView.class));
     }
 
     public List<CoverageView> coverageHour(Instant hour) {
-        Instant truncated = hour.truncatedTo(ChronoUnit.HOURS);
-        byte[] body = get("/api/v1/coverage?hour=" + encode(truncated.toString()));
-        return JsonSerde.mapper().readValue(body, COVERAGE_LIST);
+        return coverageHours.get(hour.truncatedTo(ChronoUnit.HOURS), start -> JsonSerde.mapper().readValue(
+                get("/api/v1/coverage?hour=" + encode(start.toString())), COVERAGE_LIST));
+    }
+
+    private static <V> Cache<Instant, V> hourCache() {
+        return Caffeine.newBuilder().expireAfterWrite(HOUR_CACHE_TTL).maximumSize(HOUR_CACHE_SIZE).build();
     }
 
     public static void requireMmsi(String mmsi) {
@@ -126,16 +139,14 @@ public class IntelligenceClient {
         if (base.endsWith("/")) {
             base = base.substring(0, base.length() - 1);
         }
-        HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(base + pathAndQuery))
+        HttpRequest request = HttpRequest.newBuilder(URI.create(base + pathAndQuery))
                 .timeout(properties.intelligenceTimeout())
                 .header("Accept", "application/json")
-                .GET();
-        String key = properties.intelligenceApiKey();
-        if (key != null && !key.isBlank()) {
-            builder.header(ApiKeyAuthenticationFilter.HEADER, key);
-        }
+                .header(ApiKeyAuthenticationFilter.HEADER, properties.intelligenceApiKey())
+                .GET()
+                .build();
         try {
-            HttpResponse<byte[]> response = http.send(builder.build(), HttpResponse.BodyHandlers.ofByteArray());
+            HttpResponse<byte[]> response = http.send(request, HttpResponse.BodyHandlers.ofByteArray());
             int status = response.statusCode();
             if (status == 200) {
                 return response.body();

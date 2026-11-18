@@ -3,6 +3,7 @@ package com.darkfleet.gateway.live;
 import com.darkfleet.common.kafka.DarkFleetTopics;
 import com.darkfleet.gateway.GatewayProperties;
 import com.darkfleet.gateway.GatewayTopics;
+import com.darkfleet.gateway.TestProperties;
 import org.apache.kafka.common.TopicPartition;
 import org.junit.jupiter.api.Test;
 import org.springframework.kafka.listener.ConsumerSeekAware.ConsumerSeekCallback;
@@ -25,9 +26,7 @@ class GatewayKafkaListenersTest {
 
     @Test
     void seeksStaticAndFeedHealthToBeginningAndTrackPointsOneHourBackInLiveMode() {
-        GatewayProperties props = new GatewayProperties(false, Duration.ofHours(1), Duration.ofSeconds(5),
-                Duration.ofMinutes(2), "http://localhost:8086", "", Duration.ofSeconds(5), "", Duration.ofSeconds(5),
-                Duration.ofHours(1));
+        GatewayProperties props = TestProperties.gateway(false, "http://localhost/w/api.php");
         GatewayTopics topics = GatewayTopics.of(props);
         Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
         LiveSnapshotStore store = new LiveSnapshotStore(props, clock);
@@ -39,16 +38,15 @@ class GatewayKafkaListenersTest {
 
         listeners.onPartitionsAssigned(Map.of(staticTp, 0L, trackTp, 0L), callback);
 
-        assertEquals(List.of(staticTp), callback.beginning);
-        assertEquals(List.of(trackTp), callback.timestampPartitions);
-        assertEquals(NOW.minus(Duration.ofHours(1)).toEpochMilli(), callback.timestamp);
+        // track points: to the end first, so a partition with nothing in the last hour isn't read from the start
+        long hourAgo = NOW.minus(Duration.ofHours(1)).toEpochMilli();
+        assertEquals(List.of("beginning " + staticTp, "end " + trackTp, "timestamp " + trackTp + " " + hourAgo),
+                callback.calls);
     }
 
     @Test
     void seeksReplayTrackPointsToBeginningInReplayMode() {
-        GatewayProperties props = new GatewayProperties(true, Duration.ofHours(1), Duration.ofSeconds(5),
-                Duration.ofMinutes(2), "http://localhost:8087", "", Duration.ofSeconds(5), "", Duration.ofSeconds(5),
-                Duration.ofHours(1));
+        GatewayProperties props = TestProperties.gateway(true, "http://localhost/w/api.php");
         GatewayTopics topics = GatewayTopics.of(props);
         Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
         LiveSnapshotStore store = new LiveSnapshotStore(props, clock);
@@ -59,51 +57,56 @@ class GatewayKafkaListenersTest {
 
         listeners.onPartitionsAssigned(Map.of(replayTrackTp, 0L), callback);
 
-        assertEquals(List.of(replayTrackTp), callback.beginning);
-        assertEquals(List.of(), callback.timestampPartitions);
+        assertEquals(List.of("beginning " + replayTrackTp), callback.calls);
     }
 
+    /** Records the seeks in the order they are requested; the container applies them in that order. */
     private static final class RecordingSeekCallback implements ConsumerSeekCallback {
-        final List<TopicPartition> beginning = new ArrayList<>();
-        final List<TopicPartition> timestampPartitions = new ArrayList<>();
-        long timestamp;
+        final List<String> calls = new ArrayList<>();
 
         @Override
         public void seek(String topic, int partition, long offset) {
+            throw new UnsupportedOperationException();
         }
 
         @Override
         public void seek(String topic, int partition, Function<Long, Long> offsetCompute) {
+            throw new UnsupportedOperationException();
         }
 
         @Override
         public void seekToBeginning(String topic, int partition) {
-            beginning.add(new TopicPartition(topic, partition));
-        }
-
-        @Override
-        public void seekToBeginning(Collection<TopicPartition> partitions) {
-            beginning.addAll(partitions);
+            calls.add("beginning " + new TopicPartition(topic, partition));
         }
 
         @Override
         public void seekToEnd(String topic, int partition) {
+            calls.add("end " + new TopicPartition(topic, partition));
         }
 
         @Override
-        public void seekRelative(String topic, int partition, long offset, boolean toCurrent) {
+        public void seekToBeginning(Collection<TopicPartition> partitions) {
+            partitions.forEach(tp -> seekToBeginning(tp.topic(), tp.partition()));
         }
 
         @Override
-        public void seekToTimestamp(String topic, int partition, long timestamp) {
-            timestampPartitions.add(new TopicPartition(topic, partition));
-            this.timestamp = timestamp;
+        public void seekToEnd(Collection<TopicPartition> partitions) {
+            partitions.forEach(tp -> seekToEnd(tp.topic(), tp.partition()));
         }
 
         @Override
         public void seekToTimestamp(Collection<TopicPartition> partitions, long timestamp) {
-            timestampPartitions.addAll(partitions);
-            this.timestamp = timestamp;
+            partitions.forEach(tp -> seekToTimestamp(tp.topic(), tp.partition(), timestamp));
+        }
+
+        @Override
+        public void seekRelative(String topic, int partition, long offset, boolean toCurrent) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public void seekToTimestamp(String topic, int partition, long timestamp) {
+            calls.add("timestamp " + new TopicPartition(topic, partition) + " " + timestamp);
         }
     }
 }

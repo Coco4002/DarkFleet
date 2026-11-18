@@ -7,9 +7,8 @@ import com.darkfleet.common.model.FeedHealth;
 import com.darkfleet.common.model.TrackPoint;
 import com.darkfleet.common.model.VesselStatic;
 import com.darkfleet.gateway.live.LiveSnapshotStore;
-import com.darkfleet.security.ApiKeyAuthenticationFilter;
-import com.sun.net.httpserver.HttpExchange;
-import com.sun.net.httpserver.HttpServer;
+import org.apache.kafka.clients.admin.Admin;
+import org.apache.kafka.clients.admin.AdminClientConfig;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.clients.producer.ProducerRecord;
@@ -19,258 +18,103 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
-import org.springframework.http.HttpHeaders;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
-import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.MvcResult;
 import org.testcontainers.kafka.KafkaContainer;
 
-import java.io.IOException;
-import java.net.InetSocketAddress;
-import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Stream;
 
 import static org.awaitility.Awaitility.await;
-import static org.hamcrest.Matchers.contains;
-import static org.hamcrest.Matchers.containsString;
-import static org.hamcrest.Matchers.hasItem;
-import static org.hamcrest.Matchers.not;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.request;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
 /**
- * End-to-end integration test of {@code map-gateway} against a real Kafka broker and stubbed HTTP
- * backends for Vessel Intelligence and Wikimedia Commons.
+ * The gateway against a real Kafka broker: the live state is built from the topics, and a start reads
+ * {@code track.points} from one hour back only, even on a partition that holds nothing that recent.
  */
-@SpringBootTest
-@AutoConfigureMockMvc
+@SpringBootTest(properties = {
+        "darkfleet.gateway.intelligence-url=http://127.0.0.1:9",
+        "darkfleet.gateway.intelligence-api-key=test-gateway-key"
+})
 class MapGatewayIntegrationTest {
 
-    private static final String GATEWAY_KEY = "test-gateway-ro-key";
     private static final String MMSI = "230123456";
     private static final String EXPIRED_MMSI = "273999999";
-    private static final String IMO = "9308065";
+    private static final String OLD_RECORD_MMSI = "265000111";
     private static final String CELL = "861126d37ffffff";
+    /** The partition holding only an old record before the gateway starts. */
+    private static final int IDLE_PARTITION = 5;
 
     static final KafkaContainer KAFKA = new KafkaContainer("apache/kafka:4.4.0");
     private static final KafkaProducer<String, byte[]> PRODUCER;
-    private static final HttpServer BACKENDS;
-    private static final AtomicReference<String> LAST_VI_API_KEY = new AtomicReference<>();
 
     static {
         KAFKA.start();
+        try (Admin admin = Admin.create(Map.of(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, KAFKA.getBootstrapServers()))) {
+            admin.createTopics(Stream.of(DarkFleetTopics.VESSEL_STATIC, DarkFleetTopics.TRACK_POINTS,
+                    DarkFleetTopics.FEED_HEALTH).map(DarkFleetTopics::newTopic).toList()).all().get();
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
         PRODUCER = new KafkaProducer<>(Map.of(
                 ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, KAFKA.getBootstrapServers(),
                 ProducerConfig.ACKS_CONFIG, "all"),
                 new StringSerializer(), new ByteArraySerializer());
-        try {
-            BACKENDS = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-            BACKENDS.createContext("/vi/api/v1/vessels/" + MMSI + "/track", exchange -> {
-                LAST_VI_API_KEY.set(exchange.getRequestHeaders().getFirst(ApiKeyAuthenticationFilter.HEADER));
-                respondJson(exchange, 200, """
-                        [
-                          {"time":"2026-11-18T11:00:00Z","latitude":60.05,"longitude":24.85,"sogKnots":11.8,"cogDegrees":88.0,"headingDegrees":89.0,"navStatus":0,"source":"DIGITRAFFIC"},
-                          {"time":"2026-11-18T11:30:00Z","latitude":60.10,"longitude":24.95,"sogKnots":12.1,"cogDegrees":90.0,"headingDegrees":90.0,"navStatus":0,"source":"DIGITRAFFIC"}
-                        ]""");
-            });
-            BACKENDS.createContext("/vi/api/v1/vessels/999999999/track", exchange ->
-                    respondJson(exchange, 200, "[]"));
-            BACKENDS.createContext("/vi/api/v1/vessels/tracks", exchange -> {
-                LAST_VI_API_KEY.set(exchange.getRequestHeaders().getFirst(ApiKeyAuthenticationFilter.HEADER));
-                respondJson(exchange, 200, """
-                        {
-                          "hourStart": "2026-11-12T10:00:00Z",
-                          "hourEnd": "2026-11-12T11:00:00Z",
-                          "vessels": [
-                            {
-                              "mmsi": "230123456",
-                              "name": "BALTIC EXPRESS",
-                              "shipType": 80,
-                              "lengthMeters": 244,
-                              "beamMeters": 42,
-                              "points": [
-                                {"time":"2026-11-12T10:00:00Z","latitude":60.0,"longitude":24.8,"sogKnots":12.0,"cogDegrees":90.0,"headingDegrees":90.0,"navStatus":0,"source":"DIGITRAFFIC"},
-                                {"time":"2026-11-12T10:05:00Z","latitude":60.02,"longitude":24.83,"sogKnots":12.0,"cogDegrees":90.0,"headingDegrees":90.0,"navStatus":0,"source":"DIGITRAFFIC"}
-                              ]
-                            }
-                          ]
-                        }""");
-            });
-            BACKENDS.createContext("/vi/api/v1/coverage", exchange -> {
-                LAST_VI_API_KEY.set(exchange.getRequestHeaders().getFirst(ApiKeyAuthenticationFilter.HEADER));
-                respondJson(exchange, 200, """
-                        [
-                          {
-                            "h3Cell": "861126d37ffffff",
-                            "hourStart": "2026-11-12T10:00:00Z",
-                            "positionsBySource": {"DIGITRAFFIC": 320, "AISSTREAM": 14},
-                            "vessels": 5,
-                            "stoppedVessels": 0,
-                            "windowPositionsBySource": {"DIGITRAFFIC": 6400, "AISSTREAM": 280},
-                            "windowMaxStoppedVessels": 1
-                          }
-                        ]""");
-            });
-            BACKENDS.createContext("/wikimedia/w/api.php", exchange ->
-                    respondJson(exchange, 200, """
-                            {
-                              "query": {
-                                "pages": {
-                                  "99": {
-                                    "title": "File:Baltic Express.jpg",
-                                    "imageinfo": [
-                                      {
-                                        "thumburl": "https://upload.wikimedia.org/commons/thumb/baltic.jpg",
-                                        "descriptionurl": "https://commons.wikimedia.org/wiki/File:Baltic_Express.jpg",
-                                        "extmetadata": {
-                                          "Artist": {"value": "Matti Meikalainen"},
-                                          "LicenseShortName": {"value": "CC BY 4.0"},
-                                          "LicenseUrl": {"value": "https://creativecommons.org/licenses/by/4.0/"}
-                                        }
-                                      }
-                                    ]
-                                  }
-                                }
-                              }
-                            }"""));
-            BACKENDS.start();
-        } catch (IOException e) {
-            throw new IllegalStateException(e);
-        }
+        // Written two hours ago by the broker's clock, but its position looks current: if the gateway read
+        // this partition from the beginning, the ship would show up on the live map.
+        Instant now = Instant.now();
+        send(DarkFleetTopics.TRACK_POINTS, IDLE_PARTITION, now.minus(Duration.ofHours(2)), OLD_RECORD_MMSI,
+                new TrackPoint(OLD_RECORD_MMSI, now, 59.4, 24.7, 10.0, 90.0, 90.0, 0, AisSource.AISSTREAM, CELL));
     }
 
     @AfterAll
-    static void stopBackends() {
-        BACKENDS.stop(0);
+    static void closeProducer() {
         PRODUCER.close();
     }
 
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
-        int port = BACKENDS.getAddress().getPort();
         registry.add("spring.kafka.bootstrap-servers", KAFKA::getBootstrapServers);
-        registry.add("darkfleet.gateway.intelligence-url", () -> "http://127.0.0.1:" + port + "/vi");
-        registry.add("darkfleet.gateway.intelligence-api-key", () -> GATEWAY_KEY);
-        registry.add("darkfleet.gateway.wikimedia-api-url", () -> "http://127.0.0.1:" + port + "/wikimedia/w/api.php");
     }
-
-    @Autowired
-    private MockMvc mvc;
 
     @Autowired
     private LiveSnapshotStore store;
 
     @Test
-    void ingestsKafkaEventsServesPublicMapEndpointsAndProtectsNonPublicRoutes() throws Exception {
+    void buildsTheLiveStateFromKafkaAndRewindsTrackPointsOnlyOneHour() {
         Instant now = Instant.now();
-        VesselStatic staticReport = new VesselStatic(MMSI, now.minusSeconds(30), AisSource.DIGITRAFFIC,
-                IMO, "BALTIC EXPRESS", "OJBX", 80, 11.4, "PRIMORSK", 244, 42, now.plus(Duration.ofHours(6)));
-        TrackPoint activePoint = new TrackPoint(MMSI, now.minusSeconds(10), 60.10, 24.95, 12.1, 90.0, 90.0, 0,
-                AisSource.DIGITRAFFIC, CELL);
-        TrackPoint expiredPoint = new TrackPoint(EXPIRED_MMSI, now.minus(Duration.ofHours(2)), 59.5, 24.0, 8.0, 180.0,
-                180.0, 0, AisSource.AISSTREAM, CELL);
-        FeedHealth feed = new FeedHealth(AisSource.DIGITRAFFIC, now.minusSeconds(5), 30, true, 1050, 1000,
-                now.minusSeconds(1), 50000, 0, 0);
-
-        send(DarkFleetTopics.VESSEL_STATIC, MMSI, staticReport);
-        send(DarkFleetTopics.TRACK_POINTS, EXPIRED_MMSI, expiredPoint);
-        send(DarkFleetTopics.TRACK_POINTS, MMSI, activePoint);
-        send(DarkFleetTopics.FEED_HEALTH, AisSource.DIGITRAFFIC.name(), feed);
+        send(DarkFleetTopics.VESSEL_STATIC, null, now, MMSI, new VesselStatic(MMSI, now.minusSeconds(30),
+                AisSource.DIGITRAFFIC, "9308065", "BALTIC EXPRESS", "OJBX", 80, 11.4, "PRIMORSK", 244, 42, null));
+        send(DarkFleetTopics.TRACK_POINTS, null, now, EXPIRED_MMSI, new TrackPoint(EXPIRED_MMSI,
+                now.minus(Duration.ofHours(2)), 59.5, 24.0, 8.0, 180.0, 180.0, 0, AisSource.AISSTREAM, CELL));
+        // behind the old record in the same partition: once this arrives, the old one would have been read
+        send(DarkFleetTopics.TRACK_POINTS, IDLE_PARTITION, now, MMSI, new TrackPoint(MMSI, now.minusSeconds(10),
+                60.10, 24.95, 12.1, 90.0, 90.0, 0, AisSource.DIGITRAFFIC, CELL));
+        send(DarkFleetTopics.FEED_HEALTH, null, now, AisSource.DIGITRAFFIC.name(), new FeedHealth(
+                AisSource.DIGITRAFFIC, now.minusSeconds(5), 30, true, 1050, 1000, now.minusSeconds(1), 50000, 0, 0));
 
         await().atMost(Duration.ofSeconds(30)).pollInterval(Duration.ofMillis(200))
-                .until(() -> store.latestPosition(MMSI) != null
-                        && store.staticData(MMSI) != null
-                        && !store.feeds().isEmpty());
+                .until(() -> store.latestPosition(MMSI) != null && store.latestPosition(EXPIRED_MMSI) != null
+                        && store.staticData(MMSI) != null && !store.feeds().isEmpty());
 
-        // Anonymous GET on snapshot: active vessel is present with merged static + flag; expired vessel (>1h) is filtered out
-        mvc.perform(get("/api/v1/snapshot"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.vessels[*].mmsi", hasItem(MMSI)))
-                .andExpect(jsonPath("$.vessels[*].mmsi", not(hasItem(EXPIRED_MMSI))))
-                .andExpect(jsonPath("$.vessels[?(@.mmsi == '" + MMSI + "')].name", contains("BALTIC EXPRESS")))
-                .andExpect(jsonPath("$.vessels[?(@.mmsi == '" + MMSI + "')].flagCode", contains("FI")))
-                .andExpect(jsonPath("$.vessels[?(@.mmsi == '" + MMSI + "')].flagCountry", contains("Finland")))
-                .andExpect(jsonPath("$.vessels[?(@.mmsi == '" + MMSI + "')].lengthMeters", contains(244)))
-                .andExpect(jsonPath("$.vessels[?(@.mmsi == '" + MMSI + "')].beamMeters", contains(42)))
-                .andExpect(jsonPath("$.feeds[0].source").value("DIGITRAFFIC"))
-                .andExpect(jsonPath("$.feeds[0].stale").value(false));
-
-        // Anonymous GET on SSE stream: starts async stream and emits initial snapshot
-        MvcResult sse = mvc.perform(get("/api/v1/live"))
-                .andExpect(status().isOk())
-                .andExpect(request().asyncStarted())
-                .andReturn();
-        await().atMost(Duration.ofSeconds(5)).pollInterval(Duration.ofMillis(100))
-                .until(() -> sse.getResponse().getContentAsString().contains("BALTIC EXPRESS"));
-
-        // Anonymous GET on public ship panel: combines Kafka static, flag, VI 24h trail, and Wikimedia photo
-        mvc.perform(get("/api/v1/vessels/{mmsi}", MMSI))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.mmsi").value(MMSI))
-                .andExpect(jsonPath("$.name").value("BALTIC EXPRESS"))
-                .andExpect(jsonPath("$.imo").value(IMO))
-                .andExpect(jsonPath("$.callSign").value("OJBX"))
-                .andExpect(jsonPath("$.flagCode").value("FI"))
-                .andExpect(jsonPath("$.flagCountry").value("Finland"))
-                .andExpect(jsonPath("$.lengthMeters").value(244))
-                .andExpect(jsonPath("$.beamMeters").value(42))
-                .andExpect(jsonPath("$.destination").value("PRIMORSK"))
-                .andExpect(jsonPath("$.trail.length()").value(2))
-                .andExpect(jsonPath("$.photo.imageUrl").value("https://upload.wikimedia.org/commons/thumb/baltic.jpg"))
-                .andExpect(jsonPath("$.photo.credit").value("Wikimedia Commons / Matti Meikalainen (CC BY 4.0)"));
-        assertEquals(GATEWAY_KEY, LAST_VI_API_KEY.get());
-
-        // Unknown vessel returns 404; invalid MMSI returns 400
-        mvc.perform(get("/api/v1/vessels/999999999")).andExpect(status().isNotFound());
-        mvc.perform(get("/api/v1/vessels/not-an-mmsi")).andExpect(status().isBadRequest());
-
-        // Anonymous GET on 1-minute vessel track
-        mvc.perform(get("/api/v1/vessels/{mmsi}/track?from=2026-11-18T10:00:00Z&to=2026-11-18T12:00:00Z", MMSI))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(2));
-
-        // Anonymous GET on coarse all-ships hourly history (with short public Cache-Control, never immutable)
-        mvc.perform(get("/api/v1/history/tracks?hour=2026-11-12T10:25:00Z"))
-                .andExpect(status().isOk())
-                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, containsString("max-age=60")))
-                .andExpect(jsonPath("$.hourStart").value("2026-11-12T10:00:00Z"))
-                .andExpect(jsonPath("$.vessels[0].mmsi").value(MMSI))
-                .andExpect(jsonPath("$.vessels[0].points.length()").value(2));
-
-        // Anonymous GET on H3 coverage hour
-        mvc.perform(get("/api/v1/coverage?hour=2026-11-12T10:00:00Z"))
-                .andExpect(status().isOk())
-                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, containsString("max-age=60")))
-                .andExpect(jsonPath("$[0].h3Cell").value(CELL))
-                .andExpect(jsonPath("$[0].positionsBySource.DIGITRAFFIC").value(320));
-
-        // OpenAPI docs are public; POST or unlisted paths require authentication
-        mvc.perform(get("/v3/api-docs")).andExpect(status().isOk())
-                .andExpect(jsonPath("$.info.title").value("DarkFleet Map Gateway"));
-        mvc.perform(post("/api/v1/snapshot")).andExpect(status().isUnauthorized());
-        mvc.perform(get("/api/v1/detections")).andExpect(status().isUnauthorized());
+        assertNull(store.latestPosition(OLD_RECORD_MMSI), "a record older than an hour was read on start");
+        List<String> live = store.snapshot().vessels().stream().map(LiveSnapshotStore.LiveVesselView::mmsi).toList();
+        assertEquals(List.of(MMSI), live);
+        assertEquals("BALTIC EXPRESS", store.snapshot().vessels().getFirst().name());
+        assertFalse(store.feeds().getFirst().stale());
     }
 
-    private static void send(String topic, String key, Object payload) throws Exception {
-        byte[] bytes = JsonSerde.mapper().writeValueAsBytes(payload);
-        PRODUCER.send(new ProducerRecord<>(topic, key, bytes)).get();
-    }
-
-    private static void respondJson(HttpExchange exchange, int status, String json) throws IOException {
-        byte[] body = json.getBytes(StandardCharsets.UTF_8);
-        exchange.getResponseHeaders().set("Content-Type", "application/json");
-        exchange.sendResponseHeaders(status, body.length);
-        exchange.getResponseBody().write(body);
-        exchange.close();
+    private static void send(String topic, Integer partition, Instant timestamp, String key, Object payload) {
+        try {
+            byte[] bytes = JsonSerde.mapper().writeValueAsBytes(payload);
+            PRODUCER.send(new ProducerRecord<>(topic, partition, timestamp.toEpochMilli(), key, bytes)).get();
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
     }
 }
