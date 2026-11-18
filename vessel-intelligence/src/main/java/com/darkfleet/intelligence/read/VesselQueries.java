@@ -163,6 +163,8 @@ public class VesselQueries {
     /**
      * Coarse all-ships track history for the hour containing {@code time}: at most one point per
      * 5-minute bucket per vessel, joined with the vessel's latest broadcast name, type and dimensions.
+     * Public (the map's time slider), so it reads only ordinary track points, never the ones kept
+     * around detections after their day was dropped.
      */
     public HistoryHourView historyHour(Instant time) {
         Instant hourStart = time.truncatedTo(ChronoUnit.HOURS);
@@ -170,18 +172,11 @@ public class VesselQueries {
         var params = new MapSqlParameterSource("from", Timestamp.from(hourStart))
                 .addValue("to", Timestamp.from(hourEnd));
         String sql = """
-                WITH raw AS (
-                    SELECT mmsi, time, position, sog_knots, cog_degrees, heading_degrees, nav_status, source
-                    FROM track_point WHERE time >= :from AND time < :to
-                    UNION
-                    SELECT mmsi, time, position, sog_knots, cog_degrees, heading_degrees, nav_status, source
-                    FROM track_point_kept WHERE time >= :from AND time < :to
-                ),
-                sampled AS (
+                WITH sampled AS (
                     SELECT DISTINCT ON (mmsi, floor(extract(epoch FROM time) / 300))
                         mmsi, time, ST_Y(position) AS lat, ST_X(position) AS lon,
                         sog_knots, cog_degrees, heading_degrees, nav_status, source
-                    FROM raw
+                    FROM track_point WHERE time >= :from AND time < :to
                     ORDER BY mmsi, floor(extract(epoch FROM time) / 300), time
                 )
                 SELECT s.mmsi, v.name, v.ship_type, v.length_m, v.beam_m,

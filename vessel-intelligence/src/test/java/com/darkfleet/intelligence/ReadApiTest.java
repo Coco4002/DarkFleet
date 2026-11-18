@@ -86,6 +86,10 @@ class ReadApiTest extends IntegrationTest {
                 .andExpect(jsonPath("$.vessels[0].name").value("VOLGA STAR"))
                 .andExpect(jsonPath("$.vessels[0].points[*].time",
                         contains("2026-11-12T10:00:00Z", "2026-11-12T10:10:00Z", "2026-11-12T10:20:00Z", "2026-11-12T10:30:00Z")));
+        // points kept around a detection (2026-10-20, its day dropped) never reach the public slider
+        mvc.perform(get(GATEWAY_KEY, "/api/v1/vessels/tracks?hour=2026-10-20T00:00:00Z"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.vessels").isEmpty());
         mvc.perform(get(GATEWAY_KEY, "/api/v1/coverage?hour=2026-11-12T10:20:00Z"))
                 .andExpect(status().isOk());
 
