@@ -18,6 +18,7 @@ x-service: &service
 x-security-env: &security-env
   DARKFLEET_ADMIN_API_KEY: ${DARKFLEET_ADMIN_API_KEY:-}
   DARKFLEET_INTERNAL_API_KEY: ${DARKFLEET_INTERNAL_API_KEY:-}
+  DARKFLEET_GATEWAY_API_KEY: ${DARKFLEET_GATEWAY_API_KEY:-}
 
 services:
   kafka:
@@ -222,6 +223,49 @@ services:
       SPRING_PROFILES_ACTIVE: replay
     ports:
       - "127.0.0.1:8087:8086"
+
+  # Public read side: live snapshot built from Kafka, history passed through from Vessel Intelligence. No DB access.
+  map-gateway:
+    <<: *service
+    build:
+      context: .
+      args:
+        MODULE: map-gateway
+    image: ${DARKFLEET_IMAGE_PREFIX:-darkfleet-}map-gateway:${DARKFLEET_TAG:-dev}
+    depends_on:
+      kafka:
+        condition: service_healthy
+      vessel-intelligence:
+        condition: service_started
+    environment:
+      # only its own read-only key: this container faces the public
+      DARKFLEET_GATEWAY_API_KEY: ${DARKFLEET_GATEWAY_API_KEY:?set DARKFLEET_GATEWAY_API_KEY in .env}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      DARKFLEET_INTELLIGENCE_URL: http://vessel-intelligence:8086
+    ports:
+      - "127.0.0.1:8088:8088"
+
+  # Map Gateway over replayed data: reads the replay.* topics and queries vessel-intelligence-replay.
+  map-gateway-replay:
+    <<: *service
+    profiles: [replay]
+    build:
+      context: .
+      args:
+        MODULE: map-gateway
+    image: ${DARKFLEET_IMAGE_PREFIX:-darkfleet-}map-gateway:${DARKFLEET_TAG:-dev}
+    depends_on:
+      kafka:
+        condition: service_healthy
+      vessel-intelligence-replay:
+        condition: service_started
+    environment:
+      DARKFLEET_GATEWAY_API_KEY: ${DARKFLEET_GATEWAY_API_KEY:?set DARKFLEET_GATEWAY_API_KEY in .env}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      DARKFLEET_INTELLIGENCE_REPLAY_URL: http://vessel-intelligence-replay:8086
+      SPRING_PROFILES_ACTIVE: replay
+    ports:
+      - "127.0.0.1:8089:8088"
 
 volumes:
   kafka-data:

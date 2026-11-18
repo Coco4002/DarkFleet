@@ -36,7 +36,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        module: [adapter-aisstream, adapter-digitraffic, adapter-replay, track-detection-service, vessel-intelligence]
+        module: [adapter-aisstream, adapter-digitraffic, adapter-replay, track-detection-service, vessel-intelligence, map-gateway]
     steps:
       - uses: actions/checkout@v7
       - uses: docker/setup-buildx-action@v4

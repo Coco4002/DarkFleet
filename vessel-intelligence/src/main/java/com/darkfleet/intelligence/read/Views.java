@@ -53,6 +53,17 @@ public final class Views {
             Double headingDegrees, Integer navStatus, String source) {
     }
 
+    /** A vessel's identity, size and thinned points within one hour, for the map's time slider. */
+    public record VesselHistoryTrack(
+            String mmsi, String name, Integer shipType, Integer lengthMeters, Integer beamMeters,
+            List<TrackPointView> points) {
+    }
+
+    /** Coarse all-ships history for one hour (1 point per 5-minute bucket per vessel). */
+    public record HistoryHourView(
+            Instant hourStart, Instant hourEnd, List<VesselHistoryTrack> vessels) {
+    }
+
     public record DetectionView(
             String detectionId, String type, String status, int version, String mmsi, String otherMmsi,
             Instant startedAt, Instant endedAt, Double latitude, Double longitude, String h3Cell,

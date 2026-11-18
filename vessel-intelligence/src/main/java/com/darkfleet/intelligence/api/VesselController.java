@@ -1,6 +1,7 @@
 package com.darkfleet.intelligence.api;
 
 import com.darkfleet.intelligence.read.VesselQueries;
+import com.darkfleet.intelligence.read.Views.HistoryHourView;
 import com.darkfleet.intelligence.read.Views.TrackPointView;
 import com.darkfleet.intelligence.read.Views.VesselProfile;
 import com.darkfleet.intelligence.read.Views.VesselSummary;
@@ -51,6 +52,7 @@ class VesselController {
     }
 
     @GetMapping("/{mmsi}/track")
+    @PreAuthorize(Access.GATEWAY)
     @Operation(summary = "Track points in [from, to), at most 48 hours; defaults to the last 24 hours")
     List<TrackPointView> track(@PathVariable String mmsi,
                                @RequestParam(required = false) Instant from,
@@ -58,5 +60,12 @@ class VesselController {
         Instant end = to != null ? to : clock.instant();
         Instant start = from != null ? from : end.minus(Duration.ofHours(24));
         return vessels.track(mmsi, start, end);
+    }
+
+    @GetMapping("/tracks")
+    @PreAuthorize(Access.GATEWAY)
+    @Operation(summary = "Coarse all-ships track history (1 point per 5 minutes) for the hour containing the given time")
+    HistoryHourView historyHour(@RequestParam Instant hour) {
+        return vessels.historyHour(hour);
     }
 }

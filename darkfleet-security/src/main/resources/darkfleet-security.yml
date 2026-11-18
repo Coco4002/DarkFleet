@@ -10,3 +10,6 @@ darkfleet:
       - name: internal
         key: ${DARKFLEET_INTERNAL_API_KEY:}
         roles: [SERVICE]
+      - name: gateway
+        key: ${DARKFLEET_GATEWAY_API_KEY:}
+        roles: [GATEWAY]
