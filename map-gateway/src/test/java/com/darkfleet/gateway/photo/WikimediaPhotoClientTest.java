@@ -13,6 +13,10 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -189,6 +193,41 @@ class WikimediaPhotoClientTest {
             clock.now = clock.now.plusSeconds(61);
             assertNull(client.lookup("9444649"));
             assertEquals(2, requests.get());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void aLookupWaitingWhileWikimediaThrottlesSendsNothing() throws Exception {
+        AtomicInteger requests = new AtomicInteger();
+        CountDownLatch firstArrived = new CountDownLatch(1);
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.setExecutor(Executors.newCachedThreadPool());
+        server.createContext("/w/api.php", exchange -> {
+            requests.incrementAndGet();
+            firstArrived.countDown();
+            try {
+                Thread.sleep(300);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            exchange.getResponseHeaders().set("Retry-After", "60");
+            exchange.sendResponseHeaders(429, -1);
+            exchange.close();
+        });
+        server.start();
+        try (ExecutorService lookups = Executors.newVirtualThreadPerTaskExecutor()) {
+            String url = "http://127.0.0.1:" + server.getAddress().getPort() + "/w/api.php";
+            WikimediaPhotoClient client = new WikimediaPhotoClient(TestProperties.gateway(false, url), Clock.systemUTC());
+
+            Future<VesselPhoto> first = lookups.submit(() -> client.lookup("9308065"));
+            firstArrived.await();
+            Future<VesselPhoto> second = lookups.submit(() -> client.lookup("9444649"));
+
+            assertNull(first.get());
+            assertNull(second.get());
+            assertEquals(1, requests.get(), "the waiting lookup must see the Retry-After the first one got");
         } finally {
             server.stop(0);
         }

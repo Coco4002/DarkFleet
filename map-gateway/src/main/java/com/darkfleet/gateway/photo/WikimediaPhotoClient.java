@@ -118,23 +118,24 @@ public class WikimediaPhotoClient {
                 .header("Accept", "application/json")
                 .GET()
                 .build();
-        if (clock.instant().isBefore(notBefore.get())) {
-            log.debug("Wikimedia photo lookup for {} skipped: Wikimedia asked to wait until {}", categoryTitle,
-                    notBefore.get());
-            return null;
-        }
         try {
             if (!oneAtATime.tryAcquire(properties.wikimediaTimeout().toMillis(), TimeUnit.MILLISECONDS)) {
                 log.debug("Wikimedia photo lookup for {} skipped: other lookups still running", categoryTitle);
                 return null;
             }
             HttpResponse<byte[]> response;
+            // checked and set while holding the permit, so a lookup waiting for it sees what this one was told
             try {
+                if (clock.instant().isBefore(notBefore.get())) {
+                    log.debug("Wikimedia photo lookup for {} skipped: Wikimedia asked to wait until {}",
+                            categoryTitle, notBefore.get());
+                    return null;
+                }
                 response = http.send(request, HttpResponse.BodyHandlers.ofByteArray());
+                response.headers().firstValue("Retry-After").ifPresent(this::waitAsAsked);
             } finally {
                 oneAtATime.release();
             }
-            response.headers().firstValue("Retry-After").ifPresent(this::waitAsAsked);
             if (response.statusCode() != 200) {
                 log.debug("Wikimedia photo lookup for {} returned HTTP {}", categoryTitle, response.statusCode());
                 return null;
