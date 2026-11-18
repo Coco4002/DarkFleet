@@ -156,6 +156,11 @@ public class WikimediaPhotoClient {
         }
     }
 
+    /** Lookups waiting for their turn (tests). */
+    int waitingLookups() {
+        return oneAtATime.getQueueLength();
+    }
+
     /** {@code Retry-After} is either seconds or an HTTP date. */
     private void waitAsAsked(String retryAfter) {
         Instant until;

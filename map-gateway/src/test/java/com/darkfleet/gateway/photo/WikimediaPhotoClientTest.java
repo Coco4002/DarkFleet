@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
@@ -17,11 +18,15 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.awaitility.Awaitility.await;
 
 class WikimediaPhotoClientTest {
 
@@ -202,16 +207,14 @@ class WikimediaPhotoClientTest {
     void aLookupWaitingWhileWikimediaThrottlesSendsNothing() throws Exception {
         AtomicInteger requests = new AtomicInteger();
         CountDownLatch firstArrived = new CountDownLatch(1);
+        AtomicReference<WikimediaPhotoClient> clientRef = new AtomicReference<>();
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.setExecutor(Executors.newCachedThreadPool());
         server.createContext("/w/api.php", exchange -> {
             requests.incrementAndGet();
             firstArrived.countDown();
-            try {
-                Thread.sleep(300);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
+            // answer only once the second lookup is queued for the permit
+            await().atMost(Duration.ofSeconds(5)).until(() -> clientRef.get().waitingLookups() == 1);
             exchange.getResponseHeaders().set("Retry-After", "60");
             exchange.sendResponseHeaders(429, -1);
             exchange.close();
@@ -220,13 +223,14 @@ class WikimediaPhotoClientTest {
         try (ExecutorService lookups = Executors.newVirtualThreadPerTaskExecutor()) {
             String url = "http://127.0.0.1:" + server.getAddress().getPort() + "/w/api.php";
             WikimediaPhotoClient client = new WikimediaPhotoClient(TestProperties.gateway(false, url), Clock.systemUTC());
+            clientRef.set(client);
 
             Future<VesselPhoto> first = lookups.submit(() -> client.lookup("9308065"));
-            firstArrived.await();
+            assertTrue(firstArrived.await(5, TimeUnit.SECONDS));
             Future<VesselPhoto> second = lookups.submit(() -> client.lookup("9444649"));
 
-            assertNull(first.get());
-            assertNull(second.get());
+            assertNull(first.get(10, TimeUnit.SECONDS));
+            assertNull(second.get(10, TimeUnit.SECONDS));
             assertEquals(1, requests.get(), "the waiting lookup must see the Retry-After the first one got");
         } finally {
             server.stop(0);
