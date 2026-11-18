@@ -107,7 +107,7 @@ public class PublicMapController {
         if (stat == null && latest == null) {
             throw ApiException.notFound("No vessel with MMSI " + mmsi + " has been seen");
         }
-        Instant now = clock.instant();
+        Instant now = store.dataTime();
         List<TrackPointView> trail;
         try {
             trail = intelligence.vesselTrack(mmsi, now.minus(Duration.ofHours(24)), now);
@@ -145,7 +145,7 @@ public class PublicMapController {
     public List<TrackPointView> vesselTrack(@PathVariable String mmsi,
                                             @RequestParam(required = false) Instant from,
                                             @RequestParam(required = false) Instant to) {
-        Instant end = to != null ? to : clock.instant();
+        Instant end = to != null ? to : store.dataTime();
         Instant start = from != null ? from : end.minus(Duration.ofHours(24));
         requireInHistoryWindow(start);
         return intelligence.vesselTrack(mmsi, start, end);
@@ -175,10 +175,11 @@ public class PublicMapController {
 
     /**
      * Ordinary track points are deleted after the window; older ones exist only around detections,
-     * so serving them would tell the public which ships had one.
+     * so serving them would tell the public which ships had one. Measured like the live map: by the
+     * wall clock, or by the replayed time in replay mode.
      */
     private void requireInHistoryWindow(Instant start) {
-        Instant earliest = clock.instant().minus(properties.historyWindow()).truncatedTo(ChronoUnit.HOURS);
+        Instant earliest = store.dataTime().minus(properties.historyWindow()).truncatedTo(ChronoUnit.HOURS);
         if (start.isBefore(earliest)) {
             throw ApiException.badRequest("History reaches back to " + earliest);
         }

@@ -133,13 +133,19 @@ class WikimediaPhotoClientTest {
 
     @Test
     void aFailedLookupIsTriedAgainNextTime() throws Exception {
+        assertFailureNotCached(503, "{}");
+        // the API's own errors, throttling included, come with HTTP 200
+        assertFailureNotCached(200, "{\"error\":{\"code\":\"ratelimited\",\"info\":\"slow down\"}}");
+    }
+
+    private static void assertFailureNotCached(int failStatus, String failBody) throws Exception {
         AtomicInteger requests = new AtomicInteger();
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/w/api.php", exchange -> {
             boolean fail = requests.incrementAndGet() == 1;
-            byte[] body = (fail ? "{}" : SAMPLE_JSON).getBytes(StandardCharsets.UTF_8);
+            byte[] body = (fail ? failBody : SAMPLE_JSON).getBytes(StandardCharsets.UTF_8);
             exchange.getResponseHeaders().set("Content-Type", "application/json");
-            exchange.sendResponseHeaders(fail ? 503 : 200, body.length);
+            exchange.sendResponseHeaders(fail ? failStatus : 200, body.length);
             exchange.getResponseBody().write(body);
             exchange.close();
         });

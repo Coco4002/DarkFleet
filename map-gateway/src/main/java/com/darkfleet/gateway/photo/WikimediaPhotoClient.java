@@ -17,13 +17,16 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 
 /**
  * Looks up a freely licensed vessel photo on Wikimedia Commons under {@code Category:IMO <7 digits>},
  * returning the image URL, page URL and author/licence attribution. Results, including "no photo", are
  * cached per IMO number for {@code photoCacheTtl}; simultaneous requests for the same ship make one lookup.
- * A failed lookup is not cached, so the next click tries again. Never uses proprietary ship-photo sites.
+ * A failed lookup is not cached, so the next click tries again. Requests go out one at a time, as Wikimedia
+ * asks of API clients. Never uses proprietary ship-photo sites.
  */
 @Component
 public class WikimediaPhotoClient {
@@ -47,6 +50,7 @@ public class WikimediaPhotoClient {
     private final GatewayProperties properties;
     private final HttpClient http;
     private final Cache<String, Optional<VesselPhoto>> cache;
+    private final Semaphore oneAtATime = new Semaphore(1);
 
     public WikimediaPhotoClient(GatewayProperties properties) {
         this.properties = properties;
@@ -105,12 +109,27 @@ public class WikimediaPhotoClient {
                 .GET()
                 .build();
         try {
-            HttpResponse<byte[]> response = http.send(request, HttpResponse.BodyHandlers.ofByteArray());
+            if (!oneAtATime.tryAcquire(properties.wikimediaTimeout().toMillis(), TimeUnit.MILLISECONDS)) {
+                log.debug("Wikimedia photo lookup for {} skipped: other lookups still running", categoryTitle);
+                return null;
+            }
+            HttpResponse<byte[]> response;
+            try {
+                response = http.send(request, HttpResponse.BodyHandlers.ofByteArray());
+            } finally {
+                oneAtATime.release();
+            }
             if (response.statusCode() != 200) {
                 log.debug("Wikimedia photo lookup for {} returned HTTP {}", categoryTitle, response.statusCode());
                 return null;
             }
-            return JsonSerde.mapper().readTree(response.body());
+            JsonNode root = JsonSerde.mapper().readTree(response.body());
+            // the API reports its errors (throttling included) with HTTP 200 and an "error" object
+            if (root.has("error")) {
+                log.debug("Wikimedia photo lookup for {} failed: {}", categoryTitle, root.path("error").path("code"));
+                return null;
+            }
+            return root;
         } catch (Exception e) {
             if (e instanceof InterruptedException) {
                 Thread.currentThread().interrupt();

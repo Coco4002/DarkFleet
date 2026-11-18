@@ -27,7 +27,9 @@ import java.util.function.Supplier;
  * The snapshot is written to JSON once per tick and shared. Each client is written to on its own
  * virtual thread, one event at a time: a tick that finds the client still busy is skipped for it
  * (the next snapshot replaces it anyway), and a client that misses {@link #MAX_MISSED_TICKS} ticks
- * in a row is disconnected, so a slow browser never holds up the others.
+ * in a row is disconnected, so a slow browser never holds up the others. A disconnected client counts
+ * towards {@link #MAX_CONNECTIONS} until its connection has really closed (a stuck write ends at the
+ * server's write timeout).
  */
 @Component
 public class LiveSnapshotStreamer {
@@ -90,7 +92,7 @@ public class LiveSnapshotStreamer {
 
     /** Stops serving a client. Completing waits for a write in progress, so it runs off the caller's thread. */
     private void drop(Client client) {
-        if (clients.remove(client)) {
+        if (client.closing.compareAndSet(false, true)) {
             senders.execute(client.emitter::complete);
         }
     }
@@ -99,6 +101,7 @@ public class LiveSnapshotStreamer {
 
         final SseEmitter emitter;
         final AtomicBoolean sending = new AtomicBoolean();
+        final AtomicBoolean closing = new AtomicBoolean();
         final AtomicInteger missed = new AtomicInteger();
 
         Client(SseEmitter emitter) {
@@ -106,6 +109,9 @@ public class LiveSnapshotStreamer {
         }
 
         void offer(Supplier<SseEmitter.SseEventBuilder> event) {
+            if (closing.get()) {
+                return;
+            }
             if (!sending.compareAndSet(false, true)) {
                 if (missed.incrementAndGet() >= MAX_MISSED_TICKS) {
                     log.debug("Dropping a live stream that fell {} ticks behind", MAX_MISSED_TICKS);

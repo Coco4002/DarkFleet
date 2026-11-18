@@ -44,7 +44,6 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 class MapGatewayIntegrationTest {
 
     private static final String MMSI = "230123456";
-    private static final String EXPIRED_MMSI = "273999999";
     private static final String OLD_RECORD_MMSI = "265000111";
     private static final String CELL = "861126d37ffffff";
     /** The partition holding only an old record before the gateway starts. */
@@ -90,8 +89,6 @@ class MapGatewayIntegrationTest {
         Instant now = Instant.now();
         send(DarkFleetTopics.VESSEL_STATIC, null, now, MMSI, new VesselStatic(MMSI, now.minusSeconds(30),
                 AisSource.DIGITRAFFIC, "9308065", "BALTIC EXPRESS", "OJBX", 80, 11.4, "PRIMORSK", 244, 42, null));
-        send(DarkFleetTopics.TRACK_POINTS, null, now, EXPIRED_MMSI, new TrackPoint(EXPIRED_MMSI,
-                now.minus(Duration.ofHours(2)), 59.5, 24.0, 8.0, 180.0, 180.0, 0, AisSource.AISSTREAM, CELL));
         // behind the old record in the same partition: once this arrives, the old one would have been read
         send(DarkFleetTopics.TRACK_POINTS, IDLE_PARTITION, now, MMSI, new TrackPoint(MMSI, now.minusSeconds(10),
                 60.10, 24.95, 12.1, 90.0, 90.0, 0, AisSource.DIGITRAFFIC, CELL));
@@ -99,8 +96,8 @@ class MapGatewayIntegrationTest {
                 AisSource.DIGITRAFFIC, now.minusSeconds(5), 30, true, 1050, 1000, now.minusSeconds(1), 50000, 0, 0));
 
         await().atMost(Duration.ofSeconds(30)).pollInterval(Duration.ofMillis(200))
-                .until(() -> store.latestPosition(MMSI) != null && store.latestPosition(EXPIRED_MMSI) != null
-                        && store.staticData(MMSI) != null && !store.feeds().isEmpty());
+                .until(() -> store.latestPosition(MMSI) != null && store.staticData(MMSI) != null
+                        && !store.feeds().isEmpty());
 
         assertNull(store.latestPosition(OLD_RECORD_MMSI), "a record older than an hour was read on start");
         List<String> live = store.snapshot().vessels().stream().map(LiveSnapshotStore.LiveVesselView::mmsi).toList();

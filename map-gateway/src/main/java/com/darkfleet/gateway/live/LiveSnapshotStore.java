@@ -173,12 +173,14 @@ public class LiveSnapshotStore {
     }
 
     /** The time vessel ages are measured against: the wall clock live, the newest replayed position in replay. */
-    private Instant dataTime() {
+    public Instant dataTime() {
         return properties.replay() ? newestPosition.get() : clock.instant();
     }
 
+    /** The vessel's position if it is on the live map, else {@code null}. */
     public TrackPoint latestPosition(String mmsi) {
-        return latestPositions.get(mmsi);
+        TrackPoint point = latestPositions.get(mmsi);
+        return point == null || point.time().isBefore(dataTime().minus(properties.vesselExpiry())) ? null : point;
     }
 
     public MergedStatic staticData(String mmsi) {

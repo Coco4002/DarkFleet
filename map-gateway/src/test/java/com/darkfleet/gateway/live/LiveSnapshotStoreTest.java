@@ -58,8 +58,9 @@ class LiveSnapshotStoreTest {
         assertEquals("Finland", v.flagCountry());
         assertEquals(60.1, v.latitude(), 1e-9);
 
-        store.evictExpired();
+        // off the live map at once, before the periodic eviction runs
         assertEquals(null, store.latestPosition("273000009"));
+        store.evictExpired();
         assertEquals("FINNISH STAR", store.staticData(mmsi).name());
     }
 
