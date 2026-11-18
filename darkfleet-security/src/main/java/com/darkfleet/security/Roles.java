@@ -14,6 +14,9 @@ public final class Roles {
     /** Another DarkFleet service calling with an API key (e.g. the MCP server). */
     public static final String SERVICE = "SERVICE";
 
+    /** The public map gateway: read-only access to the vessel, track and coverage endpoints it passes through. */
+    public static final String GATEWAY = "GATEWAY";
+
     private Roles() {
     }
 }

@@ -8,8 +8,34 @@
 		-Server
 	}
 
-	# Public API routes (map-gateway) and analyst routes (vessel-intelligence) are added
-	# here as those services are built. Internal services are never exposed directly.
+	# Public map API (map-gateway). SSE (/api/v1/live) flushes immediately so gzip doesn't buffer events.
+	handle /api/v1/live {
+		reverse_proxy map-gateway:8088 {
+			flush_interval -1
+		}
+	}
+
+	handle /api/v1/snapshot {
+		reverse_proxy map-gateway:8088
+	}
+
+	handle /api/v1/feeds {
+		reverse_proxy map-gateway:8088
+	}
+
+	handle /api/v1/vessels/* {
+		reverse_proxy map-gateway:8088
+	}
+
+	handle /api/v1/history/* {
+		reverse_proxy map-gateway:8088
+	}
+
+	handle /api/v1/coverage {
+		reverse_proxy map-gateway:8088
+	}
+
+	# Analyst routes (vessel-intelligence) are added with the web client. Internal services are never exposed directly.
 
 	root * /srv
 	file_server

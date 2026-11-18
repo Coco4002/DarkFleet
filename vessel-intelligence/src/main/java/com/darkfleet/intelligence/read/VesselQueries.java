@@ -1,9 +1,11 @@
 package com.darkfleet.intelligence.read;
 
+import com.darkfleet.intelligence.read.Views.HistoryHourView;
 import com.darkfleet.intelligence.read.Views.IdentityView;
 import com.darkfleet.intelligence.read.Views.ListingView;
 import com.darkfleet.intelligence.read.Views.TrackPointView;
 import com.darkfleet.intelligence.read.Views.VesselData;
+import com.darkfleet.intelligence.read.Views.VesselHistoryTrack;
 import com.darkfleet.intelligence.read.Views.VesselProfile;
 import com.darkfleet.intelligence.read.Views.VesselSummary;
 import com.darkfleet.intelligence.web.ApiException;
@@ -17,8 +19,11 @@ import org.springframework.transaction.annotation.Transactional;
 import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.regex.Pattern;
 
 @Repository
@@ -153,6 +158,53 @@ public class VesselQueries {
                 + " UNION SELECT " + Mappers.TRACK_POINT_COLUMNS
                 + " FROM track_point_kept WHERE mmsi = :mmsi AND time >= :from AND time < :to"
                 + " ORDER BY time", params, Mappers.TRACK_POINT);
+    }
+
+    /**
+     * Coarse all-ships track history for the hour containing {@code time}: at most one point per
+     * 5-minute bucket per vessel, joined with the vessel's latest broadcast name, type and dimensions.
+     */
+    public HistoryHourView historyHour(Instant time) {
+        Instant hourStart = time.truncatedTo(ChronoUnit.HOURS);
+        Instant hourEnd = hourStart.plus(Duration.ofHours(1));
+        var params = new MapSqlParameterSource("from", Timestamp.from(hourStart))
+                .addValue("to", Timestamp.from(hourEnd));
+        String sql = """
+                WITH raw AS (
+                    SELECT mmsi, time, position, sog_knots, cog_degrees, heading_degrees, nav_status, source
+                    FROM track_point WHERE time >= :from AND time < :to
+                    UNION
+                    SELECT mmsi, time, position, sog_knots, cog_degrees, heading_degrees, nav_status, source
+                    FROM track_point_kept WHERE time >= :from AND time < :to
+                ),
+                sampled AS (
+                    SELECT DISTINCT ON (mmsi, floor(extract(epoch FROM time) / 300))
+                        mmsi, time, ST_Y(position) AS lat, ST_X(position) AS lon,
+                        sog_knots, cog_degrees, heading_degrees, nav_status, source
+                    FROM raw
+                    ORDER BY mmsi, floor(extract(epoch FROM time) / 300), time
+                )
+                SELECT s.mmsi, v.name, v.ship_type, v.length_m, v.beam_m,
+                       s.time, s.lat, s.lon, s.sog_knots, s.cog_degrees, s.heading_degrees, s.nav_status, s.source
+                FROM sampled s
+                LEFT JOIN vessel v ON v.mmsi = s.mmsi
+                ORDER BY s.mmsi, s.time""";
+        Map<String, VesselHistoryTrack> tracks = new LinkedHashMap<>();
+        jdbc.query(sql, params, rs -> {
+            String mmsi = rs.getString("mmsi");
+            VesselHistoryTrack track = tracks.get(mmsi);
+            if (track == null) {
+                track = new VesselHistoryTrack(mmsi, rs.getString("name"), Rows.integer(rs, "ship_type"),
+                        Rows.integer(rs, "length_m"), Rows.integer(rs, "beam_m"), new ArrayList<>());
+                tracks.put(mmsi, track);
+            }
+            track.points().add(Mappers.TRACK_POINT.mapRow(rs, 0));
+        });
+        List<VesselHistoryTrack> vessels = tracks.values().stream()
+                .map(t -> new VesselHistoryTrack(t.mmsi(), t.name(), t.shipType(), t.lengthMeters(), t.beamMeters(),
+                        List.copyOf(t.points())))
+                .toList();
+        return new HistoryHourView(hourStart, hourEnd, vessels);
     }
 
     static void requireMmsi(String mmsi) {

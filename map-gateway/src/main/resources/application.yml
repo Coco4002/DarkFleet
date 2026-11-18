@@ -1,0 +1,65 @@
+server:
+  port: ${SERVER_PORT:8088}
+
+spring:
+  config:
+    import: optional:classpath:darkfleet-security.yml
+  application:
+    name: map-gateway
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      group-id: darkfleet-map-gateway
+      auto-offset-reset: earliest
+      # Track & Detection writes in transactions; never read what an aborted one wrote
+      isolation-level: read-committed
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.ByteArrayDeserializer
+    listener:
+      type: batch
+      ack-mode: batch
+  mvc:
+    problemdetails:
+      enabled: true
+  task:
+    scheduling:
+      pool:
+        # snapshot SSE broadcast, SSE heartbeat, expired vessel eviction
+        size: 3
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: when-authorized
+
+darkfleet:
+  security:
+    public-get-paths:
+      - /api/v1/live
+      - /api/v1/snapshot
+      - /api/v1/feeds
+      - /api/v1/vessels/*
+      - /api/v1/vessels/*/track
+      - /api/v1/history/tracks
+      - /api/v1/coverage
+  gateway:
+    replay: false
+    vessel-expiry: 1h
+    snapshot-interval: 5s
+    feed-stale-after: 2m
+    intelligence-url: ${DARKFLEET_INTELLIGENCE_URL:http://localhost:8086}
+    intelligence-api-key: ${DARKFLEET_GATEWAY_API_KEY:}
+    intelligence-timeout: 15s
+    wikimedia-api-url: ${DARKFLEET_WIKIMEDIA_API_URL:https://commons.wikimedia.org/w/api.php}
+    wikimedia-timeout: 5s
+    photo-cache-ttl: 24h
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html

@@ -34,8 +34,9 @@ class ReadApiTest extends IntegrationTest {
         seed.identity(MMSI, IMO, "VOLGA STAR", "2026-11-10T00:00:00Z", "2026-11-12T09:00:00Z");
         seed.identity(MMSI, IMO, "VOLGA", "2026-11-01T00:00:00Z", "2026-11-05T00:00:00Z");
         seed.identity(OTHER, IMO, "VOLGA STAR", "2026-11-11T00:00:00Z", "2026-11-11T06:00:00Z");
-        seed.trackPoints(MMSI, CELL, Instant.parse("2026-11-12T10:00:00Z"), Instant.parse("2026-11-12T10:10:00Z"),
-                Instant.parse("2026-11-12T10:20:00Z"), Instant.parse("2026-11-12T10:30:00Z"));
+        seed.trackPoints(MMSI, CELL, Instant.parse("2026-11-12T10:00:00Z"), Instant.parse("2026-11-12T10:02:00Z"),
+                Instant.parse("2026-11-12T10:10:00Z"), Instant.parse("2026-11-12T10:20:00Z"),
+                Instant.parse("2026-11-12T10:30:00Z"));
         seed.keptTrackPoint(MMSI, Instant.parse("2026-10-20T00:00:00Z"));
         seed.detection("read:gap", "UNEXPLAINED_GAP", "OPEN", MMSI, null, "2026-11-12T11:00:00Z", null, 59.5, 24.0, CELL);
         seed.detection("read:encounter", "POTENTIAL_ENCOUNTER", "CLOSED", MMSI, OTHER, "2026-11-12T06:00:00Z",
@@ -70,6 +71,33 @@ class ReadApiTest extends IntegrationTest {
         mvc.perform(get(ANALYST_KEY, "/api/v1/audit")).andExpect(status().isForbidden());
         mvc.perform(get(ADMIN_KEY, "/api/v1/audit")).andExpect(status().isOk());
         mvc.perform(get(ANALYST_KEY, "/api/v1/events")).andExpect(request().asyncStarted());
+    }
+
+    @Test
+    void gatewayKeyReadsOnlyTracksAndCoverage() throws Exception {
+        mvc.perform(get(GATEWAY_KEY, "/api/v1/vessels/{mmsi}/track?from=2026-11-12T10:00:00Z&to=2026-11-12T11:00:00Z", MMSI))
+                .andExpect(status().isOk());
+        mvc.perform(get(GATEWAY_KEY, "/api/v1/vessels/tracks?hour=2026-11-12T10:20:00Z"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.hourStart").value("2026-11-12T10:00:00Z"))
+                .andExpect(jsonPath("$.hourEnd").value("2026-11-12T11:00:00Z"))
+                // 10:00 and 10:02 fall in the same 5-minute bucket; only the first is returned
+                .andExpect(jsonPath("$.vessels[0].mmsi").value(MMSI))
+                .andExpect(jsonPath("$.vessels[0].name").value("VOLGA STAR"))
+                .andExpect(jsonPath("$.vessels[0].points[*].time",
+                        contains("2026-11-12T10:00:00Z", "2026-11-12T10:10:00Z", "2026-11-12T10:20:00Z", "2026-11-12T10:30:00Z")));
+        mvc.perform(get(GATEWAY_KEY, "/api/v1/coverage?hour=2026-11-12T10:20:00Z"))
+                .andExpect(status().isOk());
+
+        // analyst-only and proposal endpoints are forbidden to the public gateway key
+        mvc.perform(get(GATEWAY_KEY, "/api/v1/vessels")).andExpect(status().isForbidden());
+        mvc.perform(get(GATEWAY_KEY, "/api/v1/vessels/{mmsi}", MMSI)).andExpect(status().isForbidden());
+        mvc.perform(get(GATEWAY_KEY, "/api/v1/detections")).andExpect(status().isForbidden());
+        mvc.perform(get(GATEWAY_KEY, "/api/v1/cases")).andExpect(status().isForbidden());
+        mvc.perform(get(GATEWAY_KEY, "/api/v1/proposals")).andExpect(status().isForbidden());
+        mvc.perform(get(GATEWAY_KEY, "/api/v1/watchlist")).andExpect(status().isForbidden());
+        mvc.perform(get(GATEWAY_KEY, "/api/v1/events")).andExpect(status().isForbidden());
+        mvc.perform(post(GATEWAY_KEY, "/api/v1/assessments", java.util.Map.of())).andExpect(status().isForbidden());
     }
 
     @Test

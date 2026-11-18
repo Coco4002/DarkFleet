@@ -54,6 +54,9 @@ import static org.awaitility.Awaitility.await;
         "darkfleet.security.api-clients[2].name=mcp",
         "darkfleet.security.api-clients[2].key=" + IntegrationTest.SERVICE_KEY,
         "darkfleet.security.api-clients[2].roles=SERVICE",
+        "darkfleet.security.api-clients[3].name=gateway",
+        "darkfleet.security.api-clients[3].key=" + IntegrationTest.GATEWAY_KEY,
+        "darkfleet.security.api-clients[3].roles=GATEWAY",
         "darkfleet.intelligence.retention.enabled=false",
         "darkfleet.intelligence.sanctions.url=classpath:sanctions/maritime-sample.csv",
         "darkfleet.intelligence.sanctions.first-check=PT24H"
@@ -63,6 +66,7 @@ public abstract class IntegrationTest {
     public static final String ADMIN_KEY = "test-admin-key";
     public static final String ANALYST_KEY = "test-analyst-key";
     public static final String SERVICE_KEY = "test-service-key";
+    public static final String GATEWAY_KEY = "test-gateway-key";
 
     @Autowired
     protected MockMvc mvc;

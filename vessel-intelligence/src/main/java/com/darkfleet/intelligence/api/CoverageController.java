@@ -15,7 +15,7 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/api/v1/coverage")
-@PreAuthorize(Access.READ)
+@PreAuthorize(Access.GATEWAY)
 @Tag(name = "Coverage")
 class CoverageController {
 
