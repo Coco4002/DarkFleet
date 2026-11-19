@@ -1,5 +1,13 @@
 server:
   port: ${SERVER_PORT:8086}
+  servlet:
+    session:
+      timeout: 8h
+      cookie:
+        http-only: true
+        same-site: strict
+        # browsers accept Secure cookies on localhost too; set to false only to test over plain http elsewhere
+        secure: ${DARKFLEET_SESSION_COOKIE_SECURE:true}
 
 spring:
   config:
@@ -55,6 +63,17 @@ management:
       show-details: when-authorized
 
 darkfleet:
+  security:
+    # People log in from the web client (session cookie + CSRF token). Accounts with a blank password
+    # are ignored, so an unset variable never creates a usable account.
+    login-enabled: true
+    users:
+      - name: ${DARKFLEET_ANALYST_USER:analyst}
+        password: ${DARKFLEET_ANALYST_PASSWORD:}
+        roles: [ANALYST]
+      - name: ${DARKFLEET_ADMIN_USER:admin}
+        password: ${DARKFLEET_ADMIN_PASSWORD:}
+        roles: [ADMIN, ANALYST]
   intelligence:
     replay: false
     schema: public

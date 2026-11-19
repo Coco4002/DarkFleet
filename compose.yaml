@@ -76,8 +76,14 @@ services:
     logging: *logging
 
   caddy:
-    image: caddy:2.11.9-alpine
+    # Caddy with the built web client inside (deploy/caddy/Dockerfile)
+    build:
+      context: .
+      dockerfile: deploy/caddy/Dockerfile
+    image: ${DARKFLEET_IMAGE_PREFIX:-darkfleet-}web:${DARKFLEET_TAG:-dev}
     restart: unless-stopped
+    depends_on:
+      - map-gateway
     environment:
       # ":80" locally; the domain name on the server, which makes Caddy fetch HTTPS certificates.
       DARKFLEET_SITE_ADDRESS: ${DARKFLEET_SITE_ADDRESS:-:80}
@@ -86,8 +92,6 @@ services:
       - "${CADDY_HTTPS_PORT:-443}:443"
       - "${CADDY_HTTPS_PORT:-443}:443/udp"
     volumes:
-      - ./deploy/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
-      - ./deploy/caddy/site:/srv:ro
       - caddy-data:/data
       - caddy-config:/config
     logging: *logging
@@ -198,6 +202,10 @@ services:
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       POSTGRES_HOST: postgres
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      DARKFLEET_ANALYST_USER: ${DARKFLEET_ANALYST_USER:-analyst}
+      DARKFLEET_ANALYST_PASSWORD: ${DARKFLEET_ANALYST_PASSWORD:-}
+      DARKFLEET_ADMIN_USER: ${DARKFLEET_ADMIN_USER:-admin}
+      DARKFLEET_ADMIN_PASSWORD: ${DARKFLEET_ADMIN_PASSWORD:-}
     ports:
       - "127.0.0.1:8086:8086"
 

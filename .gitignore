@@ -14,3 +14,7 @@ tools/coverage-test/data/
 
 # database backups (deploy/backup/backup.sh)
 backups/
+
+# web client
+web/node_modules/
+web/dist/
