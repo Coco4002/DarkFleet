@@ -1,12 +1,13 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import * as maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { MapboxOverlay } from '@deck.gl/mapbox';
 import { IconLayer, PathLayer, ScatterplotLayer } from '@deck.gl/layers';
 import { H3HexagonLayer } from '@deck.gl/geo-layers';
-import type { Layer } from '@deck.gl/core';
+import type { Layer, PickingInfo } from '@deck.gl/core';
 import type { CoverageCell, TrackPoint } from './api';
 import type { Detection } from './analystApi';
+import type { PortAnchorageCell } from './ports';
 import { classOf } from './shipStyle';
 
 /** A ship ready to draw: position already reckoned or interpolated for the moment being shown. */
@@ -17,12 +18,16 @@ export interface DrawnShip {
   angle: number;
   shipType: number | null;
   stale: boolean;
+  sogKnots?: number | null;
+  navStatus?: number | null;
+  h3Cell?: string | null;
   trail?: [number, number][];
 }
 
 interface Props {
   ships: DrawnShip[];
   coverage: CoverageCell[] | null;
+  portsAndAnchorages: PortAnchorageCell[] | null;
   selectedMmsi: string | null;
   selectedTrail: TrackPoint[] | null;
   showTrails: boolean;
@@ -64,12 +69,40 @@ function coverageColor(cell: CoverageCell): [number, number, number, number] {
   return [120, 130, 140, 40];
 }
 
-export function MapView({ ships, coverage, selectedMmsi, selectedTrail, showTrails, detections, focus, onSelect }: Props) {
+function portAnchorageFillColor(cell: PortAnchorageCell): [number, number, number, number] {
+  const intensity = Math.max(cell.totalStopped, cell.windowMaxStopped);
+  const alpha = Math.min(185, 65 + Math.min(intensity, 15) * 8);
+  if (cell.kind === 'port') {
+    return [56, 189, 248, alpha]; // cyan-blue for shore/berth ports (moored)
+  }
+  return [245, 158, 11, alpha]; // amber-gold for water anchorages (at anchor)
+}
+
+function portAnchorageLineColor(cell: PortAnchorageCell): [number, number, number, number] {
+  const alpha = cell.qualifiesAsPortOrAnchorage ? 245 : 160;
+  if (cell.kind === 'port') {
+    return [125, 211, 252, alpha];
+  }
+  return [251, 191, 36, alpha];
+}
+
+export function MapView({
+  ships,
+  coverage,
+  portsAndAnchorages,
+  selectedMmsi,
+  selectedTrail,
+  showTrails,
+  detections,
+  focus,
+  onSelect,
+}: Props) {
   const container = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
   const overlay = useRef<MapboxOverlay | null>(null);
   const onSelectRef = useRef(onSelect);
   onSelectRef.current = onSelect;
+  const [hoveredPort, setHoveredPort] = useState<{ cell: PortAnchorageCell; x: number; y: number } | null>(null);
 
   useEffect(() => {
     if (!container.current) return;
@@ -125,6 +158,32 @@ export function MapView({ ships, coverage, selectedMmsi, selectedTrail, showTrai
           pickable: false,
         }),
       );
+    }
+    if (portsAndAnchorages) {
+      layers.push(
+        new H3HexagonLayer<PortAnchorageCell>({
+          id: 'ports-anchorages',
+          data: portsAndAnchorages,
+          getHexagon: (c) => c.h3Cell,
+          getFillColor: portAnchorageFillColor,
+          getLineColor: portAnchorageLineColor,
+          getLineWidth: (c) => (c.qualifiesAsPortOrAnchorage ? 2.5 : 1.5),
+          lineWidthUnits: 'pixels',
+          filled: true,
+          extruded: false,
+          stroked: true,
+          pickable: true,
+          onHover: (info: PickingInfo<PortAnchorageCell>) => {
+            if (info.object) {
+              setHoveredPort({ cell: info.object, x: info.x, y: info.y });
+            } else {
+              setHoveredPort(null);
+            }
+          },
+        }),
+      );
+    } else {
+      setHoveredPort(null);
     }
     if (showTrails) {
       layers.push(
@@ -205,7 +264,39 @@ export function MapView({ ships, coverage, selectedMmsi, selectedTrail, showTrai
       );
     }
     overlay.current?.setProps({ layers });
-  }, [ships, coverage, showTrails, trailData, selected, selectedMmsi, located]);
+  }, [ships, coverage, portsAndAnchorages, showTrails, trailData, selected, selectedMmsi, located]);
 
-  return <div ref={container} className="map" />;
+  return (
+    <>
+      <div ref={container} className="map" />
+      {hoveredPort && (
+        <div
+          className="hex-tooltip"
+          style={{ left: hoveredPort.x + 12, top: hoveredPort.y + 12 }}
+          role="tooltip"
+        >
+          <strong>
+            {hoveredPort.cell.kind === 'port' ? 'Port (shore / berth)' : 'Anchorage (in water)'}
+          </strong>
+          <span>
+            {hoveredPort.cell.moored > 0 && `${hoveredPort.cell.moored} moored`}
+            {hoveredPort.cell.moored > 0 && hoveredPort.cell.anchored > 0 && ' · '}
+            {hoveredPort.cell.anchored > 0 && `${hoveredPort.cell.anchored} at anchor`}
+            {hoveredPort.cell.otherStopped > 0 &&
+              `${hoveredPort.cell.moored > 0 || hoveredPort.cell.anchored > 0 ? ' · ' : ''}${hoveredPort.cell.otherStopped} stopped (<0.5 kn)`}
+            {hoveredPort.cell.moored === 0 &&
+              hoveredPort.cell.anchored === 0 &&
+              hoveredPort.cell.otherStopped === 0 &&
+              `${hoveredPort.cell.totalStopped} stopped in hour`}
+          </span>
+          {hoveredPort.cell.windowMaxStopped > hoveredPort.cell.totalStopped && (
+            <span className="sub">24 h peak: {hoveredPort.cell.windowMaxStopped} stopped vessels</span>
+          )}
+          {hoveredPort.cell.qualifiesAsPortOrAnchorage && (
+            <span className="tag">Data-driven port / anchorage cell (≥ 5 stopped)</span>
+          )}
+        </div>
+      )}
+    </>
+  );
 }

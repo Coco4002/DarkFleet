@@ -1,6 +1,6 @@
 :root {
   --bg: #0b1622;
-  --panel: rgba(11, 22, 34, 0.92);
+  --panel: rgba(11, 22, 34, 0.96);
   --line: #1f3347;
   --text: #d6e2ee;
   --muted: #8aa0b5;
@@ -15,14 +15,14 @@ html, body, #root { height: 100%; margin: 0; }
 body { font-family: system-ui, -apple-system, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); font-size: 14px; }
 
 .app { position: relative; height: 100%; overflow: hidden; }
-.map { position: absolute; inset: 0; }
+.map { position: absolute; inset: 0; z-index: 0; isolation: isolate; }
 .maplibregl-canvas { filter: invert(1) hue-rotate(180deg) brightness(0.82) contrast(1.08) saturate(0.65); }
 .maplibregl-ctrl-bottom-right { bottom: 92px; }
 
 .topbar {
-  position: absolute; top: 12px; left: 12px; right: 12px; display: flex; gap: 16px; align-items: center; flex-wrap: wrap;
-  background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 8px 14px;
-  pointer-events: none; backdrop-filter: blur(6px); width: fit-content; max-width: calc(100% - 24px);
+  position: absolute; top: 12px; left: 12px; right: 12px; z-index: 6; display: flex; gap: 16px; align-items: center; flex-wrap: wrap;
+  background: #0b1622; border: 1px solid var(--line); border-radius: 10px; padding: 8px 14px;
+  pointer-events: none; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45); width: fit-content; max-width: calc(100% - 24px);
 }
 .topbar > * { pointer-events: auto; }
 .topbar h1 { margin: 0; font-size: 16px; letter-spacing: .12em; text-transform: uppercase; font-weight: 700; }
@@ -34,12 +34,12 @@ body { font-family: system-ui, -apple-system, 'Segoe UI', sans-serif; background
 .toggle { color: var(--muted); cursor: pointer; user-select: none; }
 
 .banner {
-  position: absolute; top: 70px; left: 50%; transform: translateX(-50%);
+  position: absolute; top: 70px; left: 50%; transform: translateX(-50%); z-index: 5;
   background: #3b2f12; border: 1px solid #8a6d1d; color: #ffd98a; padding: 4px 14px; border-radius: 999px; font-size: 12px;
 }
 
 .legend {
-  position: absolute; left: 12px; bottom: 96px; list-style: none; margin: 0; padding: 8px 12px;
+  position: absolute; left: 12px; bottom: 96px; z-index: 5; list-style: none; margin: 0; padding: 8px 12px;
   background: var(--panel); border: 1px solid var(--line); border-radius: 10px; font-size: 12px; color: var(--muted);
 }
 .legend li { display: flex; align-items: center; gap: 8px; line-height: 1.7; }
@@ -47,9 +47,19 @@ body { font-family: system-ui, -apple-system, 'Segoe UI', sans-serif; background
 .legend i.hex { border-radius: 0; clip-path: polygon(25% 5%, 75% 5%, 100% 50%, 75% 95%, 25% 95%, 0 50%); width: 12px; height: 12px; }
 .legend i.both { background: #26c68e; }
 .legend i.one { background: #ffb74d; }
+.legend i.port { background: #38bdf8; }
+.legend i.anchorage { background: #f59e0b; }
+
+.hex-tooltip {
+  position: absolute; z-index: 4; pointer-events: none; display: grid; gap: 2px;
+  background: rgba(11, 22, 34, 0.96); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px;
+  font-size: 12px; color: var(--text); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+}
+.hex-tooltip .sub { color: var(--muted); font-size: 11px; }
+.hex-tooltip .tag { color: var(--accent); font-size: 11px; }
 
 .timebar {
-  position: absolute; left: 12px; right: 12px; bottom: 36px; display: flex; gap: 12px; align-items: center;
+  position: absolute; left: 12px; right: 12px; bottom: 36px; z-index: 5; display: flex; gap: 12px; align-items: center;
   background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px;
 }
 .timebar input[type='range'] { flex: 1; accent-color: var(--accent); }
@@ -61,13 +71,13 @@ body { font-family: system-ui, -apple-system, 'Segoe UI', sans-serif; background
 .timebar .liveBtn.on { color: var(--ok); border-color: var(--ok); }
 
 .credits {
-  position: absolute; left: 12px; right: 12px; bottom: 8px; font-size: 11px; color: var(--muted); pointer-events: none;
+  position: absolute; left: 12px; right: 12px; bottom: 8px; z-index: 5; font-size: 11px; color: var(--muted); pointer-events: none;
   text-shadow: 0 0 4px #000;
 }
 
 .panel {
-  position: absolute; top: 70px; right: 12px; bottom: 96px; width: 320px; overflow-y: auto; padding: 14px;
-  background: var(--panel); border: 1px solid var(--line); border-radius: 10px; backdrop-filter: blur(6px);
+  position: absolute; top: 70px; right: 12px; bottom: 96px; z-index: 6; width: 320px; overflow-y: auto; padding: 14px;
+  background: #0b1622; border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.55);
 }
 .panel .close { position: absolute; top: 6px; right: 8px; background: rgba(0,0,0,.5); border: 0; color: var(--text); font-size: 20px; cursor: pointer; border-radius: 6px; z-index: 1; }
 .panel h2 { margin: 8px 0 2px; font-size: 18px; }
@@ -109,8 +119,9 @@ button.primary { background: #0f4c75; border-color: #1b6ca8; }
 .modal .warn, .analyst .warn { color: var(--bad); margin: 0; }
 
 .analyst {
-  position: absolute; top: 70px; left: 12px; bottom: 96px; width: 400px; max-width: calc(100% - 24px);
-  display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; backdrop-filter: blur(6px);
+  position: absolute; top: 70px; left: 12px; bottom: 96px; z-index: 6; width: 400px; max-width: calc(100% - 24px);
+  display: flex; flex-direction: column; background: #0b1622; border: 1px solid var(--line); border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.55);
 }
 .analyst > header { display: flex; justify-content: space-between; align-items: center; padding: 8px 10px; border-bottom: 1px solid var(--line); }
 .analyst nav { display: flex; gap: 6px; }

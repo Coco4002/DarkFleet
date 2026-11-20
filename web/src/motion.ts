@@ -64,6 +64,8 @@ export interface HistoricPosition {
   longitude: number;
   latitude: number;
   angle: number;
+  sogKnots: number | null;
+  navStatus: number | null;
   /** Positions the ship had in the minutes before: oldest first, ends at the position itself. */
   trail: [number, number][];
 }
@@ -93,25 +95,31 @@ export function positionAt(points: TrackPoint[], atMs: number): HistoricPosition
   let longitude: number;
   let latitude: number;
   let angle: number;
+  let sogKnots: number | null;
+  let navStatus: number | null;
   if (before && after && afterMs - beforeMs <= MAX_HISTORY_GAP_MS * 2) {
     const span = afterMs - beforeMs;
     const f = span <= 0 ? 0 : (atMs - beforeMs) / span;
     longitude = before.longitude + (after.longitude - before.longitude) * f;
     latitude = before.latitude + (after.latitude - before.latitude) * f;
     angle = iconAngle(before.headingDegrees, before.cogDegrees);
+    sogKnots = before.sogKnots ?? after.sogKnots;
+    navStatus = before.navStatus ?? after.navStatus;
   } else {
     const nearest = before && atMs - beforeMs <= MAX_HISTORY_GAP_MS ? before : after && afterMs - atMs <= MAX_HISTORY_GAP_MS ? after : null;
     if (!nearest) return null;
     longitude = nearest.longitude;
     latitude = nearest.latitude;
     angle = iconAngle(nearest.headingDegrees, nearest.cogDegrees);
+    sogKnots = nearest.sogKnots;
+    navStatus = nearest.navStatus;
   }
   const trail: [number, number][] = [];
   for (let i = Math.max(0, lo - 8); i < lo; i++) {
     if (atMs - Date.parse(points[i].time) <= TRAIL_MS) trail.push([points[i].longitude, points[i].latitude]);
   }
   trail.push([longitude, latitude]);
-  return { longitude, latitude, angle, trail };
+  return { longitude, latitude, angle, sogKnots, navStatus, trail };
 }
 
 export interface HistoricShip {

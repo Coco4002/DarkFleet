@@ -8,6 +8,7 @@ import { useAnalystFeed } from './useAnalystFeed';
 import { coverageCache, historyCache, hourOf } from './hourCache';
 import { MapView, type DrawnShip } from './MapView';
 import { deadReckon, iconAngle, mergeTracks, positionAt, MAX_HISTORY_GAP_MS } from './motion';
+import { buildPortAnchorageCells } from './ports';
 import { ShipPanel } from './ShipPanel';
 import { CLASSES } from './shipStyle';
 import { useLiveSnapshot } from './useLive';
@@ -29,6 +30,7 @@ export function App() {
   const [selected, setSelected] = useState<string | null>(null);
   const [selectedTrail, setSelectedTrail] = useState<TrackPoint[] | null>(null);
   const [showCoverage, setShowCoverage] = useState(false);
+  const [showPorts, setShowPorts] = useState(false);
   const [nowMs, setNowMs] = useState(Date.now());
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [tracks, setTracks] = useState<Map<string, HistoryTrack>>(new Map());
@@ -109,7 +111,8 @@ export function App() {
   }, [hoursKey]);
 
   // coverage hexes: current hour live (refreshed each minute), or the hour under the slider
-  const coverageHour = !showCoverage ? null : timeMs == null ? hourOf(nowMs) : hourOf(timeMs);
+  const needCoverage = showCoverage || showPorts;
+  const coverageHour = !needCoverage ? null : timeMs == null ? hourOf(nowMs) : hourOf(timeMs);
   const coverageMinute = timeMs == null ? Math.floor(nowMs / 60_000) : 0;
   useEffect(() => {
     if (coverageHour == null) {
@@ -142,6 +145,9 @@ export function App() {
           angle: iconAngle(v.headingDegrees, v.cogDegrees),
           shipType: v.shipType,
           stale: r.stale,
+          sogKnots: v.sogKnots,
+          navStatus: v.navStatus,
+          h3Cell: v.h3Cell,
         };
       });
     }
@@ -156,12 +162,37 @@ export function App() {
           angle: p.angle,
           shipType: track.shipType,
           stale: false,
+          sogKnots: p.sogKnots,
+          navStatus: p.navStatus,
           trail: p.trail,
         });
       }
     }
     return drawn;
   }, [timeMs, liveParsed, nowMs, tracks]);
+
+  const portsAndAnchorages = useMemo(() => {
+    if (!showPorts) return null;
+    const stationaryInput =
+      timeMs == null
+        ? (snapshot?.vessels ?? []).map((v) => ({
+            mmsi: v.mmsi,
+            latitude: v.latitude,
+            longitude: v.longitude,
+            sogKnots: v.sogKnots,
+            navStatus: v.navStatus,
+            h3Cell: v.h3Cell,
+          }))
+        : ships.map((s) => ({
+            mmsi: s.mmsi,
+            latitude: s.latitude,
+            longitude: s.longitude,
+            sogKnots: s.sogKnots ?? null,
+            navStatus: s.navStatus ?? null,
+            h3Cell: s.h3Cell ?? null,
+          }));
+    return buildPortAnchorageCells(stationaryInput, coverage);
+  }, [showPorts, timeMs, snapshot, ships, coverage]);
 
   const liveSelected = useMemo(
     () => (selected ? (snapshot?.vessels.find((v) => v.mmsi === selected) ?? null) : null),
@@ -172,7 +203,8 @@ export function App() {
     <div className="app">
       <MapView
         ships={ships}
-        coverage={coverage}
+        coverage={showCoverage ? coverage : null}
+        portsAndAnchorages={portsAndAnchorages}
         selectedMmsi={selected}
         selectedTrail={selectedTrail}
         showTrails={historic}
@@ -185,6 +217,9 @@ export function App() {
         <FeedBar feeds={snapshot?.feeds ?? []} state={state} ships={historic ? ships.length : (snapshot?.vessels.length ?? 0)} />
         <label className="toggle">
           <input type="checkbox" checked={showCoverage} onChange={(e) => setShowCoverage(e.target.checked)} /> Reception coverage
+        </label>
+        <label className="toggle">
+          <input type="checkbox" checked={showPorts} onChange={(e) => setShowPorts(e.target.checked)} /> Ports &amp; anchorages
         </label>
         {signedIn ? (
           <span className="who">
@@ -220,6 +255,12 @@ export function App() {
           <>
             <li><i className="hex both" />Both feeds receive</li>
             <li><i className="hex one" />One feed only</li>
+          </>
+        )}
+        {showPorts && (
+          <>
+            <li><i className="hex port" />Port (moored at shore)</li>
+            <li><i className="hex anchorage" />Anchorage (at anchor in water)</li>
           </>
         )}
       </ul>
