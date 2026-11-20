@@ -1,9 +1,12 @@
 package com.darkfleet.gateway;
 
+import com.darkfleet.common.model.AisSource;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 import java.time.Duration;
+import java.util.EnumSet;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * @param replay              true when this instance serves a stack in replay mode: it reads the {@code replay.*}
@@ -22,6 +25,10 @@ import java.util.Objects;
  * @param wikimediaApiUrl     Wikimedia Commons Action API endpoint for vessel photo lookups by IMO category
  * @param wikimediaTimeout    timeout for Wikimedia Commons photo lookups
  * @param photoCacheTtl       how long photo lookup results (including "no photo") are kept in memory
+ * @param publicSources       AIS feeds allowed on the public map (e.g. {@code DIGITRAFFIC} only if aisstream
+ *                            redistribution terms are not confirmed; defaults to all sources when null or empty)
+ * @param rateLimitPerMinute  maximum public REST requests per minute per client IP
+ * @param maxLiveStreamsPerIp maximum simultaneous SSE live stream connections per client IP
  */
 @ConfigurationProperties("darkfleet.gateway")
 public record GatewayProperties(
@@ -36,8 +43,14 @@ public record GatewayProperties(
         Duration intelligenceTimeout,
         String wikimediaApiUrl,
         Duration wikimediaTimeout,
-        Duration photoCacheTtl
+        Duration photoCacheTtl,
+        Set<AisSource> publicSources,
+        Integer rateLimitPerMinute,
+        Integer maxLiveStreamsPerIp
 ) {
+
+    public static final int DEFAULT_RATE_LIMIT_PER_MINUTE = 120;
+    public static final int DEFAULT_MAX_LIVE_STREAMS_PER_IP = 5;
 
     public GatewayProperties {
         Objects.requireNonNull(vesselExpiry, "darkfleet.gateway.vessel-expiry is required");
@@ -56,6 +69,35 @@ public record GatewayProperties(
         requirePositive(historyWindow, "darkfleet.gateway.history-window");
         requirePositive(snapshotInterval, "darkfleet.gateway.snapshot-interval");
         requirePositive(feedStaleAfter, "darkfleet.gateway.feed-stale-after");
+        publicSources = (publicSources == null || publicSources.isEmpty())
+                ? Set.copyOf(EnumSet.allOf(AisSource.class))
+                : Set.copyOf(publicSources);
+        rateLimitPerMinute = rateLimitPerMinute == null ? DEFAULT_RATE_LIMIT_PER_MINUTE : rateLimitPerMinute;
+        maxLiveStreamsPerIp = maxLiveStreamsPerIp == null ? DEFAULT_MAX_LIVE_STREAMS_PER_IP : maxLiveStreamsPerIp;
+        if (rateLimitPerMinute <= 0) {
+            throw new IllegalArgumentException("darkfleet.gateway.rate-limit-per-minute must be positive");
+        }
+        if (maxLiveStreamsPerIp <= 0) {
+            throw new IllegalArgumentException("darkfleet.gateway.max-live-streams-per-ip must be positive");
+        }
+    }
+
+    /** True when reports from {@code source} may be shown on the public map. */
+    public boolean isSourcePublic(AisSource source) {
+        return source != null && publicSources.contains(source);
+    }
+
+    /** True when reports from the named source may be shown on the public map. */
+    public boolean isSourceNamePublic(String sourceName) {
+        if (sourceName == null) {
+            return false;
+        }
+        for (AisSource allowed : publicSources) {
+            if (allowed.name().equalsIgnoreCase(sourceName)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static void requireText(String value, String name) {

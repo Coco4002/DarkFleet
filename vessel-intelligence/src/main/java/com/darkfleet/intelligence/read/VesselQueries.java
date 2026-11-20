@@ -144,6 +144,14 @@ public class VesselQueries {
      * not UNION ALL: a kept point delivered again after its day was dropped is in both tables.
      */
     public List<TrackPointView> track(String mmsi, Instant from, Instant to) {
+        return track(mmsi, from, to, true);
+    }
+
+    /**
+     * @param includeKept true for analysts and internal services; false for the public map gateway,
+     *                    which must never see points kept only because of a detection
+     */
+    public List<TrackPointView> track(String mmsi, Instant from, Instant to, boolean includeKept) {
         requireMmsi(mmsi);
         if (!from.isBefore(to)) {
             throw ApiException.badRequest("from must be before to");
@@ -153,11 +161,14 @@ public class VesselQueries {
         }
         var params = new MapSqlParameterSource("mmsi", mmsi)
                 .addValue("from", Timestamp.from(from)).addValue("to", Timestamp.from(to));
-        return jdbc.query("SELECT " + Mappers.TRACK_POINT_COLUMNS
+        String sql = "SELECT " + Mappers.TRACK_POINT_COLUMNS
                 + " FROM track_point WHERE mmsi = :mmsi AND time >= :from AND time < :to"
-                + " UNION SELECT " + Mappers.TRACK_POINT_COLUMNS
-                + " FROM track_point_kept WHERE mmsi = :mmsi AND time >= :from AND time < :to"
-                + " ORDER BY time", params, Mappers.TRACK_POINT);
+                + (includeKept
+                        ? " UNION SELECT " + Mappers.TRACK_POINT_COLUMNS
+                          + " FROM track_point_kept WHERE mmsi = :mmsi AND time >= :from AND time < :to"
+                        : "")
+                + " ORDER BY time";
+        return jdbc.query(sql, params, Mappers.TRACK_POINT);
     }
 
     /**

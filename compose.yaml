@@ -248,6 +248,7 @@ services:
     environment:
       # only its own read-only key: this container faces the public
       DARKFLEET_GATEWAY_API_KEY: ${DARKFLEET_GATEWAY_API_KEY:?set DARKFLEET_GATEWAY_API_KEY in .env}
+      DARKFLEET_PUBLIC_SOURCES: ${DARKFLEET_PUBLIC_SOURCES:-DIGITRAFFIC,AISSTREAM}
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       DARKFLEET_INTELLIGENCE_URL: http://vessel-intelligence:8086
     ports:

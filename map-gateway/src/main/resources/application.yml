@@ -53,6 +53,10 @@ darkfleet:
     wikimedia-api-url: ${DARKFLEET_WIKIMEDIA_API_URL:https://commons.wikimedia.org/w/api.php}
     wikimedia-timeout: 3s
     photo-cache-ttl: 24h
+    # Feeds shown on the public map. Set DARKFLEET_PUBLIC_SOURCES=DIGITRAFFIC if aisstream redistribution is not permitted.
+    public-sources: ${DARKFLEET_PUBLIC_SOURCES:DIGITRAFFIC,AISSTREAM}
+    rate-limit-per-minute: ${DARKFLEET_PUBLIC_RATE_LIMIT_PER_MINUTE:120}
+    max-live-streams-per-ip: ${DARKFLEET_MAX_LIVE_STREAMS_PER_IP:5}
 
 springdoc:
   api-docs:

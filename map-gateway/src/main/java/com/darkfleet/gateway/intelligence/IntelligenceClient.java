@@ -11,6 +11,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.node.ObjectNode;
 
 import java.io.IOException;
 import java.net.URI;
@@ -111,17 +112,67 @@ public class IntelligenceClient {
         String path = "/api/v1/vessels/" + mmsi + "/track?from=" + encode(from.toString())
                 + "&to=" + encode(to.toString());
         byte[] body = get(path);
-        return JsonSerde.mapper().readValue(body, TRACK_LIST);
+        return JsonSerde.mapper().readValue(body, TRACK_LIST).stream()
+                .filter(p -> properties.isSourceNamePublic(p.source()))
+                .toList();
     }
 
     public HistoryHourView historyHour(Instant hour) {
-        return historyHours.get(hour.truncatedTo(ChronoUnit.HOURS), start -> JsonSerde.mapper().readValue(
-                get("/api/v1/vessels/tracks?hour=" + encode(start.toString())), HistoryHourView.class));
+        return historyHours.get(hour.truncatedTo(ChronoUnit.HOURS), start -> {
+            HistoryHourView raw = JsonSerde.mapper().readValue(
+                    get("/api/v1/vessels/tracks?hour=" + encode(start.toString())), HistoryHourView.class);
+            List<VesselHistoryTrack> filtered = raw.vessels().stream()
+                    .map(v -> new VesselHistoryTrack(v.mmsi(), v.name(), v.shipType(), v.lengthMeters(), v.beamMeters(),
+                            v.points().stream().filter(p -> properties.isSourceNamePublic(p.source())).toList()))
+                    .filter(v -> !v.points().isEmpty())
+                    .toList();
+            return new HistoryHourView(raw.hourStart(), raw.hourEnd(), filtered);
+        });
     }
 
     public List<CoverageView> coverageHour(Instant hour) {
         return coverageHours.get(hour.truncatedTo(ChronoUnit.HOURS), start -> JsonSerde.mapper().readValue(
-                get("/api/v1/coverage?hour=" + encode(start.toString())), COVERAGE_LIST));
+                get("/api/v1/coverage?hour=" + encode(start.toString())), COVERAGE_LIST).stream()
+                .map(this::filterCoverageSources)
+                .filter(c -> hasAnyPositiveCount(c.positionsBySource()) || hasAnyPositiveCount(c.windowPositionsBySource()))
+                .toList());
+    }
+
+    private CoverageView filterCoverageSources(CoverageView cell) {
+        return new CoverageView(
+                cell.h3Cell(),
+                cell.hourStart(),
+                filterSourceCounts(cell.positionsBySource()),
+                cell.vessels(),
+                cell.stoppedVessels(),
+                filterSourceCounts(cell.windowPositionsBySource()),
+                cell.windowMaxStoppedVessels()
+        );
+    }
+
+    private JsonNode filterSourceCounts(JsonNode counts) {
+        if (counts == null || !counts.isObject()) {
+            return counts;
+        }
+        ObjectNode filtered = JsonSerde.mapper().createObjectNode();
+        for (var entry : counts.properties()) {
+            if (properties.isSourceNamePublic(entry.getKey())) {
+                filtered.set(entry.getKey(), entry.getValue());
+            }
+        }
+        return filtered;
+    }
+
+    private static boolean hasAnyPositiveCount(JsonNode counts) {
+        if (counts == null || !counts.isObject()) {
+            return false;
+        }
+        for (JsonNode value : counts) {
+            if (value.asLong(0) > 0) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static <V> Cache<Instant, V> hourCache() {

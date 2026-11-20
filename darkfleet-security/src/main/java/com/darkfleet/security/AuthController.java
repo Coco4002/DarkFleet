@@ -41,6 +41,10 @@ public class AuthController {
     public record SessionView(boolean authenticated, String username, List<String> roles) {
     }
 
+    private static final int MAX_USERNAME_LENGTH = 128;
+    /** BCrypt only uses the first 72 bytes; rejecting huge passwords prevents hashing-based CPU exhaustion. */
+    private static final int MAX_PASSWORD_LENGTH = 256;
+
     private final AuthenticationManager authenticationManager;
     private final LoginThrottle throttle;
     private final SecurityContextRepository repository = new HttpSessionSecurityContextRepository();
@@ -59,7 +63,11 @@ public class AuthController {
             return problem(HttpStatus.BAD_REQUEST, "Username and password are required");
         }
         String user = body.username().trim();
-        if (throttle.locked(user)) {
+        if (user.length() > MAX_USERNAME_LENGTH || body.password().length() > MAX_PASSWORD_LENGTH) {
+            return problem(HttpStatus.BAD_REQUEST, "Username or password is too long");
+        }
+        String clientIp = clientIp(request);
+        if (throttle.locked(user, clientIp)) {
             return problem(HttpStatus.TOO_MANY_REQUESTS, "Too many failed attempts; try again in a minute");
         }
         Authentication authentication;
@@ -67,10 +75,10 @@ public class AuthController {
             authentication = authenticationManager.authenticate(
                     UsernamePasswordAuthenticationToken.unauthenticated(user, body.password()));
         } catch (AuthenticationException e) {
-            throttle.failed(user);
+            throttle.failed(user, clientIp);
             return problem(HttpStatus.UNAUTHORIZED, "Wrong username or password");
         }
-        throttle.succeeded(user);
+        throttle.succeeded(user, clientIp);
         // a new session id on every login: a session id planted before login is worthless
         if (request.getSession(false) != null) {
             request.changeSessionId();
@@ -112,5 +120,17 @@ public class AuthController {
 
     private static ResponseEntity<ProblemDetail> problem(HttpStatus status, String detail) {
         return ResponseEntity.status(status).body(ProblemDetail.forStatusAndDetail(status, detail));
+    }
+
+    static String clientIp(HttpServletRequest request) {
+        String forwarded = request.getHeader("X-Forwarded-For");
+        if (forwarded != null && !forwarded.isBlank()) {
+            int comma = forwarded.indexOf(',');
+            String first = (comma >= 0 ? forwarded.substring(0, comma) : forwarded).trim();
+            if (!first.isEmpty()) {
+                return first;
+            }
+        }
+        return request.getRemoteAddr();
     }
 }

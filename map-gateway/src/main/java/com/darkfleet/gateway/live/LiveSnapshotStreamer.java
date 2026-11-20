@@ -1,9 +1,11 @@
 package com.darkfleet.gateway.live;
 
+import com.darkfleet.gateway.GatewayProperties;
 import com.darkfleet.gateway.web.ApiException;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
@@ -11,6 +13,7 @@ import tools.jackson.databind.json.JsonMapper;
 
 import java.io.IOException;
 import java.time.Duration;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
@@ -41,26 +44,61 @@ public class LiveSnapshotStreamer {
 
     private final LiveSnapshotStore store;
     private final JsonMapper json;
+    private final int maxStreamsPerIp;
     private final Set<Client> clients = ConcurrentHashMap.newKeySet();
+    private final Map<String, AtomicInteger> activeByIp = new ConcurrentHashMap<>();
     private final ExecutorService senders = Executors.newVirtualThreadPerTaskExecutor();
+
+    @Autowired
+    public LiveSnapshotStreamer(LiveSnapshotStore store, JsonMapper json, GatewayProperties properties) {
+        this.store = store;
+        this.json = json;
+        this.maxStreamsPerIp = properties.maxLiveStreamsPerIp();
+    }
 
     public LiveSnapshotStreamer(LiveSnapshotStore store, JsonMapper json) {
         this.store = store;
         this.json = json;
+        this.maxStreamsPerIp = GatewayProperties.DEFAULT_MAX_LIVE_STREAMS_PER_IP;
     }
 
     public SseEmitter connect() {
+        return connect(null);
+    }
+
+    public SseEmitter connect(String clientIp) {
         if (clients.size() >= MAX_CONNECTIONS) {
             throw ApiException.unavailable("Too many open live streams; try again later");
         }
-        Client client = new Client(new SseEmitter(CONNECTION_LIFETIME.toMillis()));
-        client.emitter.onCompletion(() -> clients.remove(client));
-        client.emitter.onTimeout(() -> clients.remove(client));
-        client.emitter.onError(e -> clients.remove(client));
+        String ipKey = clientIp == null || clientIp.isBlank() ? null : clientIp;
+        if (ipKey != null) {
+            AtomicInteger count = activeByIp.computeIfAbsent(ipKey, k -> new AtomicInteger());
+            while (true) {
+                int current = count.get();
+                if (current >= maxStreamsPerIp) {
+                    throw ApiException.tooManyRequests(
+                            "Too many open live streams from this address; close another tab and try again");
+                }
+                if (count.compareAndSet(current, current + 1)) {
+                    break;
+                }
+            }
+        }
+        Client client = new Client(new SseEmitter(CONNECTION_LIFETIME.toMillis()), ipKey);
+        Runnable cleanup = () -> removeClient(client);
+        client.emitter.onCompletion(cleanup);
+        client.emitter.onTimeout(cleanup);
+        client.emitter.onError(e -> cleanup.run());
         clients.add(client);
         String snapshot = snapshotJson();
         client.offer(() -> SseEmitter.event().name("snapshot").data(snapshot));
         return client.emitter;
+    }
+
+    private void removeClient(Client client) {
+        if (clients.remove(client) && client.ipKey != null) {
+            activeByIp.computeIfPresent(client.ipKey, (k, count) -> count.decrementAndGet() <= 0 ? null : count);
+        }
     }
 
     @Scheduled(fixedRateString = "${darkfleet.gateway.snapshot-interval}")
@@ -100,12 +138,14 @@ public class LiveSnapshotStreamer {
     private final class Client {
 
         final SseEmitter emitter;
+        final String ipKey;
         final AtomicBoolean sending = new AtomicBoolean();
         final AtomicBoolean closing = new AtomicBoolean();
         final AtomicInteger missed = new AtomicInteger();
 
-        Client(SseEmitter emitter) {
+        Client(SseEmitter emitter, String ipKey) {
             this.emitter = emitter;
+            this.ipKey = ipKey;
         }
 
         void offer(Supplier<SseEmitter.SseEventBuilder> event) {

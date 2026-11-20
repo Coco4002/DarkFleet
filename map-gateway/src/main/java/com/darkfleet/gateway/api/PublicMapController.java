@@ -15,8 +15,10 @@ import com.darkfleet.gateway.live.LiveSnapshotStreamer;
 import com.darkfleet.gateway.photo.WikimediaPhotoClient;
 import com.darkfleet.gateway.photo.WikimediaPhotoClient.VesselPhoto;
 import com.darkfleet.gateway.web.ApiException;
+import com.darkfleet.gateway.web.PublicRateLimitFilter;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -81,8 +83,8 @@ public class PublicMapController {
 
     @GetMapping(value = "/live", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     @Operation(summary = "Live SSE stream: full snapshot of all active vessels every ~5 s and a heartbeat every 20 s")
-    public SseEmitter liveStream() {
-        return streamer.connect();
+    public SseEmitter liveStream(HttpServletRequest request) {
+        return streamer.connect(PublicRateLimitFilter.clientIp(request));
     }
 
     @GetMapping("/snapshot")

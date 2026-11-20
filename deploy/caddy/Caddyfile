@@ -1,10 +1,17 @@
 {$DARKFLEET_SITE_ADDRESS::80} {
 	encode zstd gzip
 
+	request_body {
+		max_size 1MB
+	}
+
 	header {
 		Strict-Transport-Security "max-age=31536000"
 		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
 		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "geolocation=(), microphone=(), camera=(), payment=()"
+		Content-Security-Policy "default-src 'self'; script-src 'self' 'wasm-unsafe-eval' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://tile.openstreetmap.org https://*.wikimedia.org; connect-src 'self' data: blob: https://tile.openstreetmap.org https://*.wikimedia.org; worker-src 'self' blob:; child-src 'self' blob:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
 		-Server
 	}
 
