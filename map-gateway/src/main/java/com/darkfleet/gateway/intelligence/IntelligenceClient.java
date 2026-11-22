@@ -91,6 +91,7 @@ public class IntelligenceClient {
     private final HttpClient http;
     private final Cache<Instant, HistoryHourView> historyHours = hourCache();
     private final Cache<Instant, List<CoverageView>> coverageHours = hourCache();
+    private final Cache<String, List<CoverageView>> latestCoverage = hourCache();
 
     public IntelligenceClient(GatewayProperties properties) {
         this.properties = properties;
@@ -124,7 +125,12 @@ public class IntelligenceClient {
                 get("/api/v1/coverage?hour=" + encode(start.toString())), COVERAGE_LIST));
     }
 
-    private static <V> Cache<Instant, V> hourCache() {
+    public List<CoverageView> latestCoverage() {
+        return latestCoverage.get("latest", key -> JsonSerde.mapper().readValue(
+                get("/api/v1/coverage/latest"), COVERAGE_LIST));
+    }
+
+    private static <K, V> Cache<K, V> hourCache() {
         return Caffeine.newBuilder().expireAfterWrite(HOUR_CACHE_TTL).maximumSize(HOUR_CACHE_SIZE).build();
     }
 

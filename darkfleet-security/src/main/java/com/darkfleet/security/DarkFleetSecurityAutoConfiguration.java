@@ -1,6 +1,16 @@
 package com.darkfleet.security;
 
 import jakarta.servlet.DispatcherType;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.security.authentication.ProviderManager;
+import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
+import org.springframework.security.core.userdetails.User;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
+import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
+
+import java.time.Clock;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
@@ -47,32 +57,90 @@ public class DarkFleetSecurityAutoConfiguration {
             "/error"
     };
 
-    /** No password accounts yet; this also stops Spring Boot from generating a default user. */
+    /**
+     * Accounts from {@code darkfleet.security.users}; services without people have none, which also stops
+     * Boot generating a default user. An account listed without a name, password or role stops the start.
+     */
     @Bean
     @ConditionalOnMissingBean
-    public UserDetailsService userDetailsService() {
-        return new InMemoryUserDetailsManager();
+    public UserDetailsService userDetailsService(DarkFleetSecurityProperties properties, PasswordEncoder encoder) {
+        var accounts = properties.getUsers().stream()
+                .peek(u -> {
+                    if (u.getName() == null || u.getName().isBlank() || u.getPassword() == null
+                            || u.getPassword().isBlank() || u.getRoles().isEmpty()
+                            || u.getRoles().stream().anyMatch(r -> r == null || r.isBlank())) {
+                        throw new IllegalStateException("darkfleet.security.users: every account needs a name, "
+                                + "a password and roles");
+                    }
+                })
+                .map(u -> User.withUsername(u.getName().trim())
+                        .password(encoder.encode(u.getPassword()))
+                        .roles(u.getRoles().toArray(String[]::new))
+                        .build())
+                .toList();
+        return new InMemoryUserDetailsManager(accounts);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public PasswordEncoder passwordEncoder() {
+        return new BCryptPasswordEncoder();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnProperty(name = "darkfleet.security.login-enabled", havingValue = "true")
+    public AuthController authController(UserDetailsService users, PasswordEncoder encoder) {
+        DaoAuthenticationProvider provider = new DaoAuthenticationProvider(users);
+        provider.setPasswordEncoder(encoder);
+        return new AuthController(new ProviderManager(provider), new LoginThrottle(Clock.systemUTC()));
     }
 
     @Bean
     @ConditionalOnMissingBean(SecurityFilterChain.class)
     public SecurityFilterChain darkFleetSecurityFilterChain(HttpSecurity http, DarkFleetSecurityProperties properties)
             throws Exception {
+        boolean login = properties.isLoginEnabled();
         http
-                // Safe only because no credential is sent automatically by browsers (see class comment).
-                .csrf(csrf -> csrf.disable())
                 .httpBasic(basic -> basic.disable())
                 .formLogin(form -> form.disable())
                 .logout(logout -> logout.disable())
-                .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .exceptionHandling(e -> e.authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)))
                 .addFilterBefore(new ApiKeyAuthenticationFilter(properties.getApiClients()),
-                        BasicAuthenticationFilter.class)
+                        BasicAuthenticationFilter.class);
+        if (login) {
+            // People log in with a session cookie, so every state-changing request needs the CSRF token.
+            // Calls carrying an API key are exempt: a browser never adds that header by itself.
+            CsrfTokenRequestAttributeHandler handler = new CsrfTokenRequestAttributeHandler();
+            handler.setCsrfRequestAttributeName(null); // plain token, read straight from the header
+            http
+                    .csrf(csrf -> csrf
+                            .csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
+                            .csrfTokenRequestHandler(handler)
+                            .requireCsrfProtectionMatcher(request -> {
+                                String method = request.getMethod();
+                                boolean safe = "GET".equals(method) || "HEAD".equals(method)
+                                        || "OPTIONS".equals(method) || "TRACE".equals(method);
+                                return !safe && request.getHeader(ApiKeyAuthenticationFilter.HEADER) == null;
+                            }))
+                    .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED))
+                    .addFilterAfter(new CsrfCookieFilter(), BasicAuthenticationFilter.class);
+        } else {
+            // Safe only because no credential is sent automatically by browsers (see class comment).
+            http
+                    .csrf(csrf -> csrf.disable())
+                    .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS));
+        }
+        http
                 .authorizeHttpRequests(auth -> {
                     // The original request was already authorized. Its async dispatch (e.g. when a
                     // server-sent event stream ends) and error dispatch carry no API key of their own.
                     auth.dispatcherTypeMatchers(DispatcherType.ASYNC, DispatcherType.ERROR).permitAll();
                     auth.requestMatchers(ALWAYS_PUBLIC).permitAll();
+                    if (login) {
+                        auth.requestMatchers(HttpMethod.POST, "/api/v1/auth/login", "/api/v1/auth/logout").permitAll();
+                        auth.requestMatchers(HttpMethod.GET, "/api/v1/auth/me").permitAll();
+                    }
                     if (!properties.getPublicPaths().isEmpty()) {
                         auth.requestMatchers(properties.getPublicPaths().toArray(String[]::new)).permitAll();
                     }

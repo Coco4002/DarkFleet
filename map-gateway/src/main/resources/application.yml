@@ -53,6 +53,8 @@ darkfleet:
     wikimedia-api-url: ${DARKFLEET_WIKIMEDIA_API_URL:https://commons.wikimedia.org/w/api.php}
     wikimedia-timeout: 3s
     photo-cache-ttl: 24h
+    rate-limit-per-minute: 120
+    max-live-streams-per-ip: 5
 
 springdoc:
   api-docs:

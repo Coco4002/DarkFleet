@@ -22,6 +22,8 @@ import java.util.Objects;
  * @param wikimediaApiUrl     Wikimedia Commons Action API endpoint for vessel photo lookups by IMO category
  * @param wikimediaTimeout    timeout for Wikimedia Commons photo lookups
  * @param photoCacheTtl       how long photo lookup results (including "no photo") are kept in memory
+ * @param rateLimitPerMinute  maximum public REST requests per minute per client IP
+ * @param maxLiveStreamsPerIp maximum simultaneous SSE live stream connections per client IP
  */
 @ConfigurationProperties("darkfleet.gateway")
 public record GatewayProperties(
@@ -36,7 +38,9 @@ public record GatewayProperties(
         Duration intelligenceTimeout,
         String wikimediaApiUrl,
         Duration wikimediaTimeout,
-        Duration photoCacheTtl
+        Duration photoCacheTtl,
+        int rateLimitPerMinute,
+        int maxLiveStreamsPerIp
 ) {
 
     public GatewayProperties {
@@ -56,6 +60,13 @@ public record GatewayProperties(
         requirePositive(historyWindow, "darkfleet.gateway.history-window");
         requirePositive(snapshotInterval, "darkfleet.gateway.snapshot-interval");
         requirePositive(feedStaleAfter, "darkfleet.gateway.feed-stale-after");
+        // unset binds as 0, so a missing setting fails here too
+        if (rateLimitPerMinute <= 0) {
+            throw new IllegalArgumentException("darkfleet.gateway.rate-limit-per-minute must be positive");
+        }
+        if (maxLiveStreamsPerIp <= 0) {
+            throw new IllegalArgumentException("darkfleet.gateway.max-live-streams-per-ip must be positive");
+        }
     }
 
     private static void requireText(String value, String name) {

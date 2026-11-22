@@ -15,6 +15,13 @@ x-service: &service
   logging: *logging
   mem_limit: 512m
 
+# Accounts for the web login (Vessel Intelligence only)
+x-login-env: &login-env
+  DARKFLEET_ANALYST_USER: ${DARKFLEET_ANALYST_USER:?set DARKFLEET_ANALYST_USER in .env}
+  DARKFLEET_ANALYST_PASSWORD: ${DARKFLEET_ANALYST_PASSWORD:?set DARKFLEET_ANALYST_PASSWORD in .env}
+  DARKFLEET_ADMIN_USER: ${DARKFLEET_ADMIN_USER:?set DARKFLEET_ADMIN_USER in .env}
+  DARKFLEET_ADMIN_PASSWORD: ${DARKFLEET_ADMIN_PASSWORD:?set DARKFLEET_ADMIN_PASSWORD in .env}
+
 x-security-env: &security-env
   DARKFLEET_ADMIN_API_KEY: ${DARKFLEET_ADMIN_API_KEY:-}
   DARKFLEET_INTERNAL_API_KEY: ${DARKFLEET_INTERNAL_API_KEY:-}
@@ -76,8 +83,14 @@ services:
     logging: *logging
 
   caddy:
-    image: caddy:2.11.9-alpine
+    # Caddy with the built web client inside (deploy/caddy/Dockerfile)
+    build:
+      context: .
+      dockerfile: deploy/caddy/Dockerfile
+    image: ${DARKFLEET_IMAGE_PREFIX:-darkfleet-}web:${DARKFLEET_TAG:-dev}
     restart: unless-stopped
+    depends_on:
+      - map-gateway
     environment:
       # ":80" locally; the domain name on the server, which makes Caddy fetch HTTPS certificates.
       DARKFLEET_SITE_ADDRESS: ${DARKFLEET_SITE_ADDRESS:-:80}
@@ -86,8 +99,6 @@ services:
       - "${CADDY_HTTPS_PORT:-443}:443"
       - "${CADDY_HTTPS_PORT:-443}:443/udp"
     volumes:
-      - ./deploy/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
-      - ./deploy/caddy/site:/srv:ro
       - caddy-data:/data
       - caddy-config:/config
     logging: *logging
@@ -194,7 +205,7 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      <<: *security-env
+      <<: [*security-env, *login-env]
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       POSTGRES_HOST: postgres
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
@@ -216,7 +227,7 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      <<: *security-env
+      <<: [*security-env, *login-env]
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       POSTGRES_HOST: postgres
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}

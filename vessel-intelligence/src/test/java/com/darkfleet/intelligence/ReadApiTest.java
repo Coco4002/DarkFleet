@@ -8,6 +8,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import java.time.Instant;
 
 import static org.hamcrest.Matchers.contains;
+import static org.hamcrest.Matchers.everyItem;
+import static org.hamcrest.Matchers.greaterThanOrEqualTo;
 import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.hasSize;
@@ -86,10 +88,13 @@ class ReadApiTest extends IntegrationTest {
                 .andExpect(jsonPath("$.vessels[0].name").value("VOLGA STAR"))
                 .andExpect(jsonPath("$.vessels[0].points[*].time",
                         contains("2026-11-12T10:00:00Z", "2026-11-12T10:10:00Z", "2026-11-12T10:20:00Z", "2026-11-12T10:30:00Z")));
-        // points kept around a detection (2026-10-20, its day dropped) never reach the public slider
+        // points kept around a detection (2026-10-20, its day dropped) never reach the public slider or public ship track
         mvc.perform(get(GATEWAY_KEY, "/api/v1/vessels/tracks?hour=2026-10-20T00:00:00Z"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.vessels").isEmpty());
+        mvc.perform(get(GATEWAY_KEY, "/api/v1/vessels/{mmsi}/track?from=2026-10-19T12:00:00Z&to=2026-10-20T12:00:00Z", MMSI))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$").isEmpty());
         mvc.perform(get(GATEWAY_KEY, "/api/v1/coverage?hour=2026-11-12T10:20:00Z"))
                 .andExpect(status().isOk());
 
@@ -177,5 +182,11 @@ class ReadApiTest extends IntegrationTest {
                 .andExpect(jsonPath("$[?(@.h3Cell == '" + CELL + "')].positionsBySource.DIGITRAFFIC", contains(340)));
         mvc.perform(get(ANALYST_KEY, "/api/v1/coverage?hour=2026-11-12T11:00:00Z"))
                 .andExpect(jsonPath("$[*].h3Cell", not(hasItem(CELL))));
+        // the newest published hour, whatever other tests seeded: one hour, at least as new as ours
+        mvc.perform(get(GATEWAY_KEY, "/api/v1/coverage/latest"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$").isNotEmpty())
+                .andExpect(jsonPath("$[*].hourStart",
+                        everyItem(greaterThanOrEqualTo("2026-11-12T10:00:00Z"))));
     }
 }

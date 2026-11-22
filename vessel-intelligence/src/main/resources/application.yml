@@ -1,5 +1,13 @@
 server:
   port: ${SERVER_PORT:8086}
+  servlet:
+    session:
+      timeout: 8h
+      cookie:
+        http-only: true
+        same-site: strict
+        # browsers accept Secure cookies on http://localhost too
+        secure: true
 
 spring:
   config:
@@ -55,6 +63,16 @@ management:
       show-details: when-authorized
 
 darkfleet:
+  security:
+    # People log in from the web client (session cookie + CSRF token). Both accounts are required.
+    login-enabled: true
+    users:
+      - name: ${DARKFLEET_ANALYST_USER}
+        password: ${DARKFLEET_ANALYST_PASSWORD}
+        roles: [ANALYST]
+      - name: ${DARKFLEET_ADMIN_USER}
+        password: ${DARKFLEET_ADMIN_PASSWORD}
+        roles: [ADMIN, ANALYST]
   intelligence:
     replay: false
     schema: public

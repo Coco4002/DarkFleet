@@ -6,9 +6,11 @@ import com.darkfleet.intelligence.read.Views.TrackPointView;
 import com.darkfleet.intelligence.read.Views.VesselProfile;
 import com.darkfleet.intelligence.read.Views.VesselSummary;
 import com.darkfleet.intelligence.web.PageResult;
+import com.darkfleet.security.Roles;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -56,10 +58,14 @@ class VesselController {
     @Operation(summary = "Track points in [from, to), at most 48 hours; defaults to the last 24 hours")
     List<TrackPointView> track(@PathVariable String mmsi,
                                @RequestParam(required = false) Instant from,
-                               @RequestParam(required = false) Instant to) {
+                               @RequestParam(required = false) Instant to,
+                               Authentication authentication) {
         Instant end = to != null ? to : clock.instant();
         Instant start = from != null ? from : end.minus(Duration.ofHours(24));
-        return vessels.track(mmsi, start, end);
+        boolean includeKept = authentication != null && authentication.getAuthorities().stream()
+                .anyMatch(a -> ("ROLE_" + Roles.ANALYST).equals(a.getAuthority())
+                        || ("ROLE_" + Roles.SERVICE).equals(a.getAuthority()));
+        return vessels.track(mmsi, start, end, includeKept);
     }
 
     @GetMapping("/tracks")

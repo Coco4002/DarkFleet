@@ -30,4 +30,10 @@ class CoverageController {
     List<CoverageView> hour(@RequestParam Instant hour) {
         return coverage.hour(hour);
     }
+
+    @GetMapping("/latest")
+    @Operation(summary = "Reception per H3 cell for the newest published hour (hours are published after they end)")
+    List<CoverageView> latest() {
+        return coverage.latest();
+    }
 }

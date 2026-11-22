@@ -1,10 +1,17 @@
 {$DARKFLEET_SITE_ADDRESS::80} {
 	encode zstd gzip
 
+	request_body {
+		max_size 1MB
+	}
+
 	header {
 		Strict-Transport-Security "max-age=31536000"
 		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
 		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "geolocation=(), microphone=(), camera=(), payment=()"
+		Content-Security-Policy "default-src 'self'; script-src 'self' 'wasm-unsafe-eval' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://tile.openstreetmap.org https://*.wikimedia.org; connect-src 'self' data: blob: https://tile.openstreetmap.org https://*.wikimedia.org; worker-src 'self' blob:; child-src 'self' blob:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
 		-Server
 	}
 
@@ -15,8 +22,22 @@
 		}
 	}
 
-	# Analyst routes (vessel-intelligence) are added with the web client. Internal services are never exposed directly.
+	# Analyst API (vessel-intelligence): only the paths the web client uses, and only with a login session.
+	# An X-Api-Key header from outside is removed, so service keys can't be used through the public site.
+	@analyst path /api/v1/auth/* /api/v1/detections /api/v1/detections/* /api/v1/encounters /api/v1/proposals /api/v1/proposals/* /api/v1/cases /api/v1/cases/* /api/v1/events /api/v1/rules /api/v1/rules/* /api/v1/watchlist /api/v1/audit /api/v1/vessels /api/v1/vessels/*
+	handle @analyst {
+		reverse_proxy vessel-intelligence:8086 {
+			header_up -X-Api-Key
+			flush_interval -1
+		}
+	}
 
-	root * /srv
-	file_server
+	handle {
+		root * /srv
+		# built files carry a content hash in their name, so they never change
+		@hashed path /assets/*
+		header @hashed Cache-Control "public, max-age=31536000, immutable"
+		header /index.html Cache-Control "no-cache"
+		file_server
+	}
 }

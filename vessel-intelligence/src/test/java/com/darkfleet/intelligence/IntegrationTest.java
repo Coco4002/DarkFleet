@@ -57,6 +57,12 @@ import static org.awaitility.Awaitility.await;
         "darkfleet.security.api-clients[3].name=gateway",
         "darkfleet.security.api-clients[3].key=" + IntegrationTest.GATEWAY_KEY,
         "darkfleet.security.api-clients[3].roles=GATEWAY",
+        "darkfleet.security.users[0].name=test-analyst",
+        "darkfleet.security.users[0].password=test-analyst-password",
+        "darkfleet.security.users[0].roles=ANALYST",
+        "darkfleet.security.users[1].name=test-admin",
+        "darkfleet.security.users[1].password=test-admin-password",
+        "darkfleet.security.users[1].roles=ADMIN,ANALYST",
         "darkfleet.intelligence.retention.enabled=false",
         "darkfleet.intelligence.sanctions.url=classpath:sanctions/maritime-sample.csv",
         "darkfleet.intelligence.sanctions.first-check=PT24H"

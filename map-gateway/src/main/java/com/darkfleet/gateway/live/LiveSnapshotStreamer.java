@@ -1,5 +1,6 @@
 package com.darkfleet.gateway.live;
 
+import com.darkfleet.gateway.GatewayProperties;
 import com.darkfleet.gateway.web.ApiException;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
@@ -11,6 +12,7 @@ import tools.jackson.databind.json.JsonMapper;
 
 import java.io.IOException;
 import java.time.Duration;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
@@ -41,26 +43,50 @@ public class LiveSnapshotStreamer {
 
     private final LiveSnapshotStore store;
     private final JsonMapper json;
+    private final int maxStreamsPerIp;
     private final Set<Client> clients = ConcurrentHashMap.newKeySet();
+    /** Open streams per client address; reserved and released inside compute, so the count can't be lost. */
+    private final Map<String, Integer> activeByIp = new ConcurrentHashMap<>();
     private final ExecutorService senders = Executors.newVirtualThreadPerTaskExecutor();
 
-    public LiveSnapshotStreamer(LiveSnapshotStore store, JsonMapper json) {
+    public LiveSnapshotStreamer(LiveSnapshotStore store, JsonMapper json, GatewayProperties properties) {
         this.store = store;
         this.json = json;
+        this.maxStreamsPerIp = properties.maxLiveStreamsPerIp();
     }
 
-    public SseEmitter connect() {
+    public SseEmitter connect(String clientIp) {
         if (clients.size() >= MAX_CONNECTIONS) {
             throw ApiException.unavailable("Too many open live streams; try again later");
         }
-        Client client = new Client(new SseEmitter(CONNECTION_LIFETIME.toMillis()));
-        client.emitter.onCompletion(() -> clients.remove(client));
-        client.emitter.onTimeout(() -> clients.remove(client));
-        client.emitter.onError(e -> clients.remove(client));
+        boolean[] admitted = {false};
+        activeByIp.compute(clientIp, (ip, open) -> {
+            int count = open == null ? 0 : open;
+            if (count >= maxStreamsPerIp) {
+                return open;
+            }
+            admitted[0] = true;
+            return count + 1;
+        });
+        if (!admitted[0]) {
+            throw ApiException.tooManyRequests(
+                    "Too many open live streams from this address; close another tab and try again");
+        }
+        Client client = new Client(new SseEmitter(CONNECTION_LIFETIME.toMillis()), clientIp);
+        Runnable cleanup = () -> removeClient(client);
+        client.emitter.onCompletion(cleanup);
+        client.emitter.onTimeout(cleanup);
+        client.emitter.onError(e -> cleanup.run());
         clients.add(client);
         String snapshot = snapshotJson();
         client.offer(() -> SseEmitter.event().name("snapshot").data(snapshot));
         return client.emitter;
+    }
+
+    private void removeClient(Client client) {
+        if (clients.remove(client)) {
+            activeByIp.computeIfPresent(client.ipKey, (ip, open) -> open <= 1 ? null : open - 1);
+        }
     }
 
     @Scheduled(fixedRateString = "${darkfleet.gateway.snapshot-interval}")
@@ -100,12 +126,14 @@ public class LiveSnapshotStreamer {
     private final class Client {
 
         final SseEmitter emitter;
+        final String ipKey;
         final AtomicBoolean sending = new AtomicBoolean();
         final AtomicBoolean closing = new AtomicBoolean();
         final AtomicInteger missed = new AtomicInteger();
 
-        Client(SseEmitter emitter) {
+        Client(SseEmitter emitter, String ipKey) {
             this.emitter = emitter;
+            this.ipKey = ipKey;
         }
 
         void offer(Supplier<SseEmitter.SseEventBuilder> event) {

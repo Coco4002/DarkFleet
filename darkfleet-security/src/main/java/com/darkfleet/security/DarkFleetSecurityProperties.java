@@ -21,6 +21,59 @@ public class DarkFleetSecurityProperties {
     /** Paths open to everyone for GET only. */
     private List<String> publicGetPaths = new ArrayList<>();
 
+    /** Turns on browser login (session cookie + CSRF protection) for the people in {@link #users}. */
+    private boolean loginEnabled = false;
+
+    /** People who may log in; each needs a name, a password and roles. */
+    private List<UserAccount> users = new ArrayList<>();
+
+    public boolean isLoginEnabled() {
+        return loginEnabled;
+    }
+
+    public void setLoginEnabled(boolean loginEnabled) {
+        this.loginEnabled = loginEnabled;
+    }
+
+    public List<UserAccount> getUsers() {
+        return users;
+    }
+
+    public void setUsers(List<UserAccount> users) {
+        this.users = users;
+    }
+
+    public static class UserAccount {
+        private String name;
+        /** Plain text from the environment; hashed with bcrypt when the service starts, never kept as given. */
+        private String password;
+        private List<String> roles = new ArrayList<>();
+
+        public String getName() {
+            return name;
+        }
+
+        public void setName(String name) {
+            this.name = name;
+        }
+
+        public String getPassword() {
+            return password;
+        }
+
+        public void setPassword(String password) {
+            this.password = password;
+        }
+
+        public List<String> getRoles() {
+            return roles;
+        }
+
+        public void setRoles(List<String> roles) {
+            this.roles = roles;
+        }
+    }
+
     public List<ApiClient> getApiClients() {
         return apiClients;
     }

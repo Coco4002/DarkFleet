@@ -15,8 +15,10 @@ import com.darkfleet.gateway.live.LiveSnapshotStreamer;
 import com.darkfleet.gateway.photo.WikimediaPhotoClient;
 import com.darkfleet.gateway.photo.WikimediaPhotoClient.VesselPhoto;
 import com.darkfleet.gateway.web.ApiException;
+import com.darkfleet.gateway.web.PublicRateLimitFilter;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -81,8 +83,8 @@ public class PublicMapController {
 
     @GetMapping(value = "/live", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     @Operation(summary = "Live SSE stream: full snapshot of all active vessels every ~5 s and a heartbeat every 20 s")
-    public SseEmitter liveStream() {
-        return streamer.connect();
+    public SseEmitter liveStream(HttpServletRequest request) {
+        return streamer.connect(PublicRateLimitFilter.clientIp(request));
     }
 
     @GetMapping("/snapshot")
@@ -173,16 +175,29 @@ public class PublicMapController {
                 .body(intelligence.coverageHour(truncated));
     }
 
+    @GetMapping("/coverage/latest")
+    @Operation(summary = "Reception statistics per H3 cell for the newest published hour (for the live map)")
+    public ResponseEntity<List<CoverageView>> latestCoverage() {
+        List<CoverageView> cells = intelligence.latestCoverage();
+        // after a long outage the newest hour can be older than the public window
+        boolean inWindow = cells.isEmpty() || !cells.getFirst().hourStart().isBefore(earliestPublicHour());
+        return ResponseEntity.ok().cacheControl(CURRENT_HOUR_CACHE).body(inWindow ? cells : List.of());
+    }
+
     /**
      * Ordinary track points are deleted after the window; older ones exist only around detections,
      * so serving them would tell the public which ships had one. Measured like the live map: by the
      * wall clock, or by the replayed time in replay mode.
      */
     private void requireInHistoryWindow(Instant start) {
-        Instant earliest = store.dataTime().minus(properties.historyWindow()).truncatedTo(ChronoUnit.HOURS);
+        Instant earliest = earliestPublicHour();
         if (start.isBefore(earliest)) {
             throw ApiException.badRequest("History reaches back to " + earliest);
         }
+    }
+
+    private Instant earliestPublicHour() {
+        return store.dataTime().minus(properties.historyWindow()).truncatedTo(ChronoUnit.HOURS);
     }
 
     /** An exclusive end that still includes a point stamped exactly now (in replay: the newest replayed point). */
