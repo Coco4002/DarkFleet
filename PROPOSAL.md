@@ -110,4 +110,4 @@ Proposals never write directly: Vessel Intelligence validates them and they wait
 | Agent adds little over rules | Rules only create candidates; agent judged against a rules-only baseline |
 | Wrongly accusing a vessel | Neutral wording; detections visible only to analysts; every proposal needs approval |
 | Data volume | Bounded region, short Kafka retention, seven days of track history in daily partitions |
-| aisstream redistribution terms unclear | Confirmed before the map goes public; otherwise the public map shows Digitraffic data only |
+| aisstream redistribution terms unclear | The map is shown for the course only; the terms are checked before any wider use |

@@ -9,8 +9,9 @@ import {
 
 /**
  * What analysts see on top of the public map: currently open detections and the count of proposals
- * waiting for a decision. Refetched when the server announces a change (server-sent events), and each
- * time that stream (re)connects, so changes made while it was down are picked up.
+ * waiting for a decision. Loaded at once, again when the server announces a change (server-sent events)
+ * and each time that stream (re)connects, so changes made while it was down are picked up. A failed
+ * load is tried again after 15 s.
  */
 export function useAnalystFeed(session: Session | null) {
   const [open, setOpen] = useState<Detection[]>([]);
@@ -25,7 +26,9 @@ export function useAnalystFeed(session: Session | null) {
       return;
     }
     let cancelled = false;
+    let retry: ReturnType<typeof setTimeout> | undefined;
     async function load() {
+      clearTimeout(retry);
       try {
         const [d, p] = await Promise.all([listDetections({ status: 'OPEN' }), listProposals('PENDING', 0)]);
         if (cancelled) return;
@@ -33,15 +36,17 @@ export function useAnalystFeed(session: Session | null) {
         setPending(p.items.length + (p.hasMore ? 1 : 0));
         setTick((t) => t + 1);
       } catch {
-        // session expired or server busy: the next change or reconnect tries again
+        if (!cancelled) retry = setTimeout(() => void load(), 15_000);
       }
     }
+    void load();
     const es = new EventSource(analystEventsUrl);
     es.onopen = () => void load();
     es.addEventListener('detection', () => void load());
     es.addEventListener('proposal', () => void load());
     return () => {
       cancelled = true;
+      clearTimeout(retry);
       es.close();
     };
   }, [active]);

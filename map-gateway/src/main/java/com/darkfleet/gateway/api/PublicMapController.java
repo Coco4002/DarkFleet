@@ -178,7 +178,10 @@ public class PublicMapController {
     @GetMapping("/coverage/latest")
     @Operation(summary = "Reception statistics per H3 cell for the newest published hour (for the live map)")
     public ResponseEntity<List<CoverageView>> latestCoverage() {
-        return ResponseEntity.ok().cacheControl(CURRENT_HOUR_CACHE).body(intelligence.latestCoverage());
+        List<CoverageView> cells = intelligence.latestCoverage();
+        // after a long outage the newest hour can be older than the public window
+        boolean inWindow = cells.isEmpty() || !cells.getFirst().hourStart().isBefore(earliestPublicHour());
+        return ResponseEntity.ok().cacheControl(CURRENT_HOUR_CACHE).body(inWindow ? cells : List.of());
     }
 
     /**
@@ -187,10 +190,14 @@ public class PublicMapController {
      * wall clock, or by the replayed time in replay mode.
      */
     private void requireInHistoryWindow(Instant start) {
-        Instant earliest = store.dataTime().minus(properties.historyWindow()).truncatedTo(ChronoUnit.HOURS);
+        Instant earliest = earliestPublicHour();
         if (start.isBefore(earliest)) {
             throw ApiException.badRequest("History reaches back to " + earliest);
         }
+    }
+
+    private Instant earliestPublicHour() {
+        return store.dataTime().minus(properties.historyWindow()).truncatedTo(ChronoUnit.HOURS);
     }
 
     /** An exclusive end that still includes a point stamped exactly now (in replay: the newest replayed point). */

@@ -67,7 +67,8 @@ public class DarkFleetSecurityAutoConfiguration {
         var accounts = properties.getUsers().stream()
                 .peek(u -> {
                     if (u.getName() == null || u.getName().isBlank() || u.getPassword() == null
-                            || u.getPassword().isEmpty() || u.getRoles().isEmpty()) {
+                            || u.getPassword().isBlank() || u.getRoles().isEmpty()
+                            || u.getRoles().stream().anyMatch(r -> r == null || r.isBlank())) {
                         throw new IllegalStateException("darkfleet.security.users: every account needs a name, "
                                 + "a password and roles");
                     }
