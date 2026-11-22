@@ -24,7 +24,7 @@ public class DarkFleetSecurityProperties {
     /** Turns on browser login (session cookie + CSRF protection) for the people in {@link #users}. */
     private boolean loginEnabled = false;
 
-    /** People who may log in. Accounts with a blank name or password are ignored. */
+    /** People who may log in; each needs a name, a password and roles. */
     private List<UserAccount> users = new ArrayList<>();
 
     public boolean isLoginEnabled() {
@@ -47,7 +47,7 @@ public class DarkFleetSecurityProperties {
         private String name;
         /** Plain text from the environment; hashed with bcrypt when the service starts, never kept as given. */
         private String password;
-        private List<String> roles = new ArrayList<>(List.of(Roles.ANALYST));
+        private List<String> roles = new ArrayList<>();
 
         public String getName() {
             return name;

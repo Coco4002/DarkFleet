@@ -15,6 +15,13 @@ x-service: &service
   logging: *logging
   mem_limit: 512m
 
+# Accounts for the web login (Vessel Intelligence only)
+x-login-env: &login-env
+  DARKFLEET_ANALYST_USER: ${DARKFLEET_ANALYST_USER:?set DARKFLEET_ANALYST_USER in .env}
+  DARKFLEET_ANALYST_PASSWORD: ${DARKFLEET_ANALYST_PASSWORD:?set DARKFLEET_ANALYST_PASSWORD in .env}
+  DARKFLEET_ADMIN_USER: ${DARKFLEET_ADMIN_USER:?set DARKFLEET_ADMIN_USER in .env}
+  DARKFLEET_ADMIN_PASSWORD: ${DARKFLEET_ADMIN_PASSWORD:?set DARKFLEET_ADMIN_PASSWORD in .env}
+
 x-security-env: &security-env
   DARKFLEET_ADMIN_API_KEY: ${DARKFLEET_ADMIN_API_KEY:-}
   DARKFLEET_INTERNAL_API_KEY: ${DARKFLEET_INTERNAL_API_KEY:-}
@@ -198,14 +205,10 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      <<: *security-env
+      <<: [*security-env, *login-env]
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       POSTGRES_HOST: postgres
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
-      DARKFLEET_ANALYST_USER: ${DARKFLEET_ANALYST_USER:-analyst}
-      DARKFLEET_ANALYST_PASSWORD: ${DARKFLEET_ANALYST_PASSWORD:-}
-      DARKFLEET_ADMIN_USER: ${DARKFLEET_ADMIN_USER:-admin}
-      DARKFLEET_ADMIN_PASSWORD: ${DARKFLEET_ADMIN_PASSWORD:-}
     ports:
       - "127.0.0.1:8086:8086"
 
@@ -224,7 +227,7 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      <<: *security-env
+      <<: [*security-env, *login-env]
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       POSTGRES_HOST: postgres
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
@@ -248,7 +251,6 @@ services:
     environment:
       # only its own read-only key: this container faces the public
       DARKFLEET_GATEWAY_API_KEY: ${DARKFLEET_GATEWAY_API_KEY:?set DARKFLEET_GATEWAY_API_KEY in .env}
-      DARKFLEET_PUBLIC_SOURCES: ${DARKFLEET_PUBLIC_SOURCES:-DIGITRAFFIC,AISSTREAM}
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       DARKFLEET_INTELLIGENCE_URL: http://vessel-intelligence:8086
     ports:

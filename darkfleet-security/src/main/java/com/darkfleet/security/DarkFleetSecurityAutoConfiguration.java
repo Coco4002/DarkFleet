@@ -57,13 +57,21 @@ public class DarkFleetSecurityAutoConfiguration {
             "/error"
     };
 
-    /** Accounts from {@code darkfleet.security.users}; none by default, which also stops Boot generating a default user. */
+    /**
+     * Accounts from {@code darkfleet.security.users}; services without people have none, which also stops
+     * Boot generating a default user. An account listed without a name, password or role stops the start.
+     */
     @Bean
     @ConditionalOnMissingBean
     public UserDetailsService userDetailsService(DarkFleetSecurityProperties properties, PasswordEncoder encoder) {
         var accounts = properties.getUsers().stream()
-                .filter(u -> u.getName() != null && !u.getName().isBlank()
-                        && u.getPassword() != null && !u.getPassword().isEmpty())
+                .peek(u -> {
+                    if (u.getName() == null || u.getName().isBlank() || u.getPassword() == null
+                            || u.getPassword().isEmpty() || u.getRoles().isEmpty()) {
+                        throw new IllegalStateException("darkfleet.security.users: every account needs a name, "
+                                + "a password and roles");
+                    }
+                })
                 .map(u -> User.withUsername(u.getName().trim())
                         .password(encoder.encode(u.getPassword()))
                         .roles(u.getRoles().toArray(String[]::new))

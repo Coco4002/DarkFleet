@@ -35,8 +35,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
                 "darkfleet.security.users[1].name=root",
                 "darkfleet.security.users[1].password=root-pass",
                 "darkfleet.security.users[1].roles=ADMIN,ANALYST",
-                "darkfleet.security.users[2].name=unset",
-                "darkfleet.security.users[2].password=",
                 "darkfleet.security.api-clients[0].name=internal",
                 "darkfleet.security.api-clients[0].key=service-key"
         })
@@ -94,7 +92,7 @@ class LoginTest {
         mvc.perform(post("/api/v1/auth/login").cookie(xsrf).header("X-XSRF-TOKEN", xsrf.getValue())
                 .contentType(MediaType.APPLICATION_JSON).content(body("nobody", "x"))).andExpect(status().isUnauthorized());
         mvc.perform(post("/api/v1/auth/login").cookie(xsrf).header("X-XSRF-TOKEN", xsrf.getValue())
-                .contentType(MediaType.APPLICATION_JSON).content(body("unset", ""))).andExpect(status().isBadRequest());
+                .contentType(MediaType.APPLICATION_JSON).content(body("ana", ""))).andExpect(status().isBadRequest());
     }
 
     @Test

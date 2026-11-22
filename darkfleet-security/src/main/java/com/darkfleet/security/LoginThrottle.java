@@ -30,35 +30,18 @@ public class LoginThrottle {
         this.clock = clock;
     }
 
-    public boolean locked(String username) {
-        return locked(username, null);
-    }
-
     public boolean locked(String username, String clientIp) {
-        return isLocked(states.get(key(username)))
-                || (clientIp != null && !clientIp.isBlank() && isLocked(ipStates.get(clientIp)));
-    }
-
-    public void failed(String username) {
-        failed(username, null);
+        return isLocked(states.get(key(username))) || isLocked(ipStates.get(clientIp));
     }
 
     public void failed(String username, String clientIp) {
         recordFailure(states, key(username), MAX_FAILURES);
-        if (clientIp != null && !clientIp.isBlank()) {
-            recordFailure(ipStates, clientIp, MAX_IP_FAILURES);
-        }
-    }
-
-    public void succeeded(String username) {
-        succeeded(username, null);
+        recordFailure(ipStates, clientIp, MAX_IP_FAILURES);
     }
 
     public void succeeded(String username, String clientIp) {
         states.remove(key(username));
-        if (clientIp != null && !clientIp.isBlank()) {
-            ipStates.remove(clientIp);
-        }
+        ipStates.remove(clientIp);
     }
 
     private boolean isLocked(State s) {
