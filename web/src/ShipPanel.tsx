@@ -42,7 +42,8 @@ export function ShipPanel({ mmsi, live, onClose, onTrail }: Props) {
   const shipType = panel?.shipType ?? live?.shipType ?? null;
   const flagCode = panel?.flagCode ?? live?.flagCode ?? null;
   const flagCountry = panel?.flagCountry ?? live?.flagCountry ?? null;
-  const position = panel?.lastPosition ?? live;
+  // the live snapshot keeps moving; the panel's own position is only the one it was opened with
+  const position = live ?? panel?.lastPosition ?? null;
   const status = navStatusLabel(position?.navStatus ?? null);
   const color = classOf(shipType).color;
 

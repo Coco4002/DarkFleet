@@ -122,14 +122,14 @@ export function listDetections(params: { type?: string; status?: string; mmsi?: 
   return call<Page<Detection>>('GET', `/api/v1/detections?${q}`);
 }
 export const getDetection = (id: string) => call<DetectionDetail>('GET', `/api/v1/detections/${encodeURIComponent(id)}`);
-export const listProposals = (status: string) =>
-  call<Page<Proposal>>('GET', `/api/v1/proposals?status=${encodeURIComponent(status)}&size=50`);
+export const listProposals = (status: string, page: number) =>
+  call<Page<Proposal>>('GET', `/api/v1/proposals?status=${encodeURIComponent(status)}&size=50&page=${page}`);
 export const approveProposal = (id: string, note: string) =>
   call<Proposal>('POST', `/api/v1/proposals/${encodeURIComponent(id)}/approve`, { note: note || null });
 export const rejectProposal = (id: string, note: string) =>
   call<Proposal>('POST', `/api/v1/proposals/${encodeURIComponent(id)}/reject`, { note });
-export const listCases = (status: string) =>
-  call<Page<CaseSummary>>('GET', `/api/v1/cases?status=${encodeURIComponent(status)}&size=50`);
+export const listCases = (status: string, page: number) =>
+  call<Page<CaseSummary>>('GET', `/api/v1/cases?status=${encodeURIComponent(status)}&size=50&page=${page}`);
 
 export const DETECTION_TYPES = [
   ['UNEXPLAINED_GAP', 'Unexplained AIS gap'],

@@ -4,13 +4,12 @@ import type { CoverageCell } from './api';
 export const H3_RESOLUTION = 6;
 /** Speed threshold below which a vessel is considered stationary (matches CoverageTick.STOPPED_KNOTS in Track & Detection). */
 export const STOPPED_KNOTS = 0.5;
-/** Baseline minimum stopped vessels in an hour for Track & Detection to classify a cell as a port or anchorage. */
-export const PORT_MIN_STOPPED_VESSELS = 5;
 
 export const NAV_AT_ANCHOR = 1;
 export const NAV_MOORED = 5;
 
-export type StationaryKind = 'port' | 'anchorage';
+/** What the stopped ships in a cell say about themselves; "stopped" when they don't say or are split evenly. */
+export type StationaryKind = 'port' | 'anchorage' | 'stopped';
 
 export interface StationaryShipInput {
   mmsi: string;
@@ -24,18 +23,16 @@ export interface StationaryShipInput {
 export interface PortAnchorageCell {
   h3Cell: string;
   kind: StationaryKind;
-  /** Ships moored at berth (navStatus === 5 and speed < 0.5 kn). */
+  /** Stopped ships reporting "moored". */
   moored: number;
-  /** Ships at anchor in water (navStatus === 1 and speed < 0.5 kn). */
+  /** Stopped ships reporting "at anchor". */
   anchored: number;
-  /** Stationary ships (< 0.5 kn) without moored/anchored navStatus. */
+  /** Stopped ships reporting neither. */
   otherStopped: number;
-  /** Total currently stationary ships in this cell. */
+  /** Ships stopped here now (live) or in the hour (history), whichever the data shows more of. */
   totalStopped: number;
-  /** Highest hourly stopped vessel count over the 24 h coverage window (if coverage is loaded). */
+  /** Track & Detection's count: most stopped vessels in one hour over the last 24 h. */
   windowMaxStopped: number;
-  /** True when the cell meets Track & Detection's port/anchorage threshold (>= 5 stopped vessels). */
-  qualifiesAsPortOrAnchorage: boolean;
 }
 
 /**
@@ -53,81 +50,42 @@ export function isStationaryShip(sogKnots: number | null, navStatus: number | nu
 }
 
 /**
- * Aggregates stationary ships and hourly H3 coverage into Port (moored at shore/berth) and
- * Anchorage (at anchor in water) cells.
- *
- * Distinction:
- * - A cell where stationary ships are predominantly moored (`navStatus = 5`, `moored > anchored` and `moored >= 1`)
- *   is classified as a **Port** (shore/berth).
- * - A cell where stationary ships are at anchor in water (`navStatus = 1`) or stopped offshore without berth status
- *   is classified as an **Anchorage**.
+ * Cells where ships stop, from the ships on the map and Track & Detection's coverage counts. Whether a cell
+ * is a port or an anchorage is not decided here (Track & Detection owns that rule); the label only repeats
+ * what most of its stopped ships report: moored, at anchor, or neither.
  */
 export function buildPortAnchorageCells(
   ships: StationaryShipInput[],
   coverage: CoverageCell[] | null,
 ): PortAnchorageCell[] {
-  const byCell = new Map<
-    string,
-    { moored: number; anchored: number; otherStopped: number; windowMaxStopped: number; hourlyStopped: number }
-  >();
+  const byCell = new Map<string, PortAnchorageCell>();
+  const cellFor = (h3Cell: string) => {
+    let cell = byCell.get(h3Cell);
+    if (!cell) {
+      cell = { h3Cell, kind: 'stopped', moored: 0, anchored: 0, otherStopped: 0, totalStopped: 0, windowMaxStopped: 0 };
+      byCell.set(h3Cell, cell);
+    }
+    return cell;
+  };
 
   for (const s of ships) {
     if (!isStationaryShip(s.sogKnots, s.navStatus)) continue;
-    if (!Number.isFinite(s.latitude) || !Number.isFinite(s.longitude)) continue;
-    const cell = s.h3Cell || latLngToCell(s.latitude, s.longitude, H3_RESOLUTION);
-    let entry = byCell.get(cell);
-    if (!entry) {
-      entry = { moored: 0, anchored: 0, otherStopped: 0, windowMaxStopped: 0, hourlyStopped: 0 };
-      byCell.set(cell, entry);
-    }
-    if (s.navStatus === NAV_MOORED) {
-      entry.moored++;
-    } else if (s.navStatus === NAV_AT_ANCHOR) {
-      entry.anchored++;
-    } else {
-      entry.otherStopped++;
-    }
+    const cell = cellFor(s.h3Cell || latLngToCell(s.latitude, s.longitude, H3_RESOLUTION));
+    if (s.navStatus === NAV_MOORED) cell.moored++;
+    else if (s.navStatus === NAV_AT_ANCHOR) cell.anchored++;
+    else cell.otherStopped++;
+  }
+  for (const c of coverage ?? []) {
+    if (c.stoppedVessels === 0 && c.windowMaxStoppedVessels === 0) continue;
+    const cell = cellFor(c.h3Cell);
+    cell.totalStopped = c.stoppedVessels;
+    cell.windowMaxStopped = c.windowMaxStoppedVessels;
   }
 
-  if (coverage) {
-    for (const c of coverage) {
-      const peak = Math.max(c.stoppedVessels, c.windowMaxStoppedVessels);
-      if (peak <= 0) continue;
-      let entry = byCell.get(c.h3Cell);
-      if (!entry) {
-        if (peak < 2) continue;
-        entry = { moored: 0, anchored: 0, otherStopped: 0, windowMaxStopped: 0, hourlyStopped: 0 };
-        byCell.set(c.h3Cell, entry);
-      }
-      entry.windowMaxStopped = Math.max(entry.windowMaxStopped, c.windowMaxStoppedVessels);
-      entry.hourlyStopped = Math.max(entry.hourlyStopped, c.stoppedVessels);
-    }
+  const cells = [...byCell.values()];
+  for (const cell of cells) {
+    cell.totalStopped = Math.max(cell.totalStopped, cell.moored + cell.anchored + cell.otherStopped);
+    cell.kind = cell.moored > cell.anchored ? 'port' : cell.anchored > cell.moored ? 'anchorage' : 'stopped';
   }
-
-  const cells: PortAnchorageCell[] = [];
-  for (const [h3Cell, e] of byCell.entries()) {
-    const liveStopped = e.moored + e.anchored + e.otherStopped;
-    const totalStopped = Math.max(liveStopped, e.hourlyStopped);
-    const windowMaxStopped = Math.max(e.windowMaxStopped, totalStopped);
-    // Show cells with at least 2 stationary ships, or any cell that has moored/anchored vessels or meets the 24h port threshold
-    if (totalStopped < 1 && windowMaxStopped < 2) continue;
-
-    const kind: StationaryKind = e.moored > 0 && e.moored >= e.anchored ? 'port' : 'anchorage';
-    const qualifiesAsPortOrAnchorage =
-      totalStopped >= PORT_MIN_STOPPED_VESSELS || windowMaxStopped >= PORT_MIN_STOPPED_VESSELS;
-
-    cells.push({
-      h3Cell,
-      kind,
-      moored: e.moored,
-      anchored: e.anchored,
-      otherStopped: e.otherStopped,
-      totalStopped,
-      windowMaxStopped,
-      qualifiesAsPortOrAnchorage,
-    });
-  }
-
-  cells.sort((a, b) => b.totalStopped - a.totalStopped || b.windowMaxStopped - a.windowMaxStopped);
-  return cells;
+  return cells.sort((a, b) => b.totalStopped - a.totalStopped || b.windowMaxStopped - a.windowMaxStopped);
 }

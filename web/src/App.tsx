@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { CoverageCell, HistoryTrack, TrackPoint } from './api';
+import { fetchLatestCoverage, type CoverageCell, type HistoryTrack, type TrackPoint } from './api';
 import { getSession, logout, type Detection, type Session } from './analystApi';
 import { AnalystPanel } from './AnalystPanel';
 import { FeedBar, TimeBar } from './Bars';
@@ -110,24 +110,23 @@ export function App() {
     };
   }, [hoursKey]);
 
-  // coverage hexes: current hour live (refreshed each minute), or the hour under the slider
+  // coverage hexes: live, the newest published hour (refreshed each minute); else the hour under the slider
   const needCoverage = showCoverage || showPorts;
-  const coverageHour = !needCoverage ? null : timeMs == null ? hourOf(nowMs) : hourOf(timeMs);
+  const coverageHour = timeMs == null ? null : hourOf(timeMs);
   const coverageMinute = timeMs == null ? Math.floor(nowMs / 60_000) : 0;
   useEffect(() => {
-    if (coverageHour == null) {
+    if (!needCoverage) {
       setCoverage(null);
       return;
     }
     let cancelled = false;
-    coverageCache
-      .get(coverageHour)
+    (coverageHour == null ? fetchLatestCoverage() : coverageCache.get(coverageHour))
       .then((cells) => !cancelled && setCoverage(cells))
       .catch(() => !cancelled && setCoverage([]));
     return () => {
       cancelled = true;
     };
-  }, [coverageHour, coverageMinute]);
+  }, [needCoverage, coverageHour, coverageMinute]);
 
   const liveParsed = useMemo(
     () => (snapshot?.vessels ?? []).map((v) => ({ v, ms: Date.parse(v.time) })),
@@ -259,8 +258,9 @@ export function App() {
         )}
         {showPorts && (
           <>
-            <li><i className="hex port" />Port (moored at shore)</li>
-            <li><i className="hex anchorage" />Anchorage (at anchor in water)</li>
+            <li><i className="hex port" />Mostly moored ships</li>
+            <li><i className="hex anchorage" />Mostly ships at anchor</li>
+            <li><i className="hex stopped" />Stopped ships</li>
           </>
         )}
       </ul>
@@ -298,7 +298,7 @@ export function App() {
       )}
       <TimeBar nowMs={nowMs} timeMs={timeMs} playing={playing} onTime={setTimeMs} onPlaying={setPlaying} />
       <footer className="credits">
-        AIS: aisstream.io · Source: Fintraffic / digitraffic.fi, license CC 4.0 BY · Photos: Wikimedia Commons · Map © OpenStreetMap contributors
+        AIS: aisstream.io · Source: Fintraffic / digitraffic.fi, license CC 4.0 BY · Sanctions: OpenSanctions, CC BY-NC 4.0 · Photos: Wikimedia Commons · Map © OpenStreetMap contributors
       </footer>
     </div>
   );

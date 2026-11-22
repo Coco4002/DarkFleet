@@ -72,19 +72,18 @@ function coverageColor(cell: CoverageCell): [number, number, number, number] {
 function portAnchorageFillColor(cell: PortAnchorageCell): [number, number, number, number] {
   const intensity = Math.max(cell.totalStopped, cell.windowMaxStopped);
   const alpha = Math.min(185, 65 + Math.min(intensity, 15) * 8);
-  if (cell.kind === 'port') {
-    return [56, 189, 248, alpha]; // cyan-blue for shore/berth ports (moored)
-  }
-  return [245, 158, 11, alpha]; // amber-gold for water anchorages (at anchor)
+  if (cell.kind === 'port') return [56, 189, 248, alpha]; // mostly moored
+  if (cell.kind === 'anchorage') return [245, 158, 11, alpha]; // mostly at anchor
+  return [148, 163, 184, alpha]; // status not given or split
 }
 
 function portAnchorageLineColor(cell: PortAnchorageCell): [number, number, number, number] {
-  const alpha = cell.qualifiesAsPortOrAnchorage ? 245 : 160;
-  if (cell.kind === 'port') {
-    return [125, 211, 252, alpha];
-  }
-  return [251, 191, 36, alpha];
+  if (cell.kind === 'port') return [125, 211, 252, 220];
+  if (cell.kind === 'anchorage') return [251, 191, 36, 220];
+  return [203, 213, 225, 220];
 }
+
+const KIND_LABEL = { port: 'Mostly moored ships', anchorage: 'Mostly ships at anchor', stopped: 'Stopped ships' };
 
 export function MapView({
   ships,
@@ -167,7 +166,7 @@ export function MapView({
           getHexagon: (c) => c.h3Cell,
           getFillColor: portAnchorageFillColor,
           getLineColor: portAnchorageLineColor,
-          getLineWidth: (c) => (c.qualifiesAsPortOrAnchorage ? 2.5 : 1.5),
+          getLineWidth: 1.5,
           lineWidthUnits: 'pixels',
           filled: true,
           extruded: false,
@@ -275,9 +274,7 @@ export function MapView({
           style={{ left: hoveredPort.x + 12, top: hoveredPort.y + 12 }}
           role="tooltip"
         >
-          <strong>
-            {hoveredPort.cell.kind === 'port' ? 'Port (shore / berth)' : 'Anchorage (in water)'}
-          </strong>
+          <strong>{KIND_LABEL[hoveredPort.cell.kind]}</strong>
           <span>
             {hoveredPort.cell.moored > 0 && `${hoveredPort.cell.moored} moored`}
             {hoveredPort.cell.moored > 0 && hoveredPort.cell.anchored > 0 && ' · '}
@@ -291,9 +288,6 @@ export function MapView({
           </span>
           {hoveredPort.cell.windowMaxStopped > hoveredPort.cell.totalStopped && (
             <span className="sub">24 h peak: {hoveredPort.cell.windowMaxStopped} stopped vessels</span>
-          )}
-          {hoveredPort.cell.qualifiesAsPortOrAnchorage && (
-            <span className="tag">Data-driven port / anchorage cell (≥ 5 stopped)</span>
           )}
         </div>
       )}

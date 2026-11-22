@@ -132,4 +132,7 @@ export const fetchHistoryHour = (hourIso: string, signal?: AbortSignal) =>
 export const fetchCoverageHour = (hourIso: string, signal?: AbortSignal) =>
   getJson<CoverageCell[]>(`/coverage?hour=${encodeURIComponent(hourIso)}`, signal);
 
+/** The newest published hour: an hour's coverage appears only after it ends. */
+export const fetchLatestCoverage = (signal?: AbortSignal) => getJson<CoverageCell[]>('/coverage/latest', signal);
+
 export const liveStreamUrl = `${BASE}/live`;

@@ -78,16 +78,27 @@ export function AnalystPanel({ session, tick, pending, onClose, onShow, onSessio
   );
 }
 
+function Pager({ page, hasMore, onPage }: { page: number; hasMore: boolean; onPage: (page: number) => void }) {
+  if (page === 0 && !hasMore) return null;
+  return (
+    <div className="row">
+      <button disabled={page === 0} onClick={() => onPage(page - 1)}>Previous</button>
+      <button disabled={!hasMore} onClick={() => onPage(page + 1)}>Next</button>
+    </div>
+  );
+}
+
 function Proposals({ session, tick, onExpired }: { session: Session; tick: number; onExpired: () => void }) {
   const [status, setStatus] = useState<'PENDING' | 'APPROVED' | 'REJECTED'>('PENDING');
+  const [page, setPage] = useState(0);
   const [local, setLocal] = useState(0);
-  const { data, error } = useLoad(() => listProposals(status), [status, tick, local], onExpired);
+  const { data, error } = useLoad(() => listProposals(status, page), [status, page, tick, local], onExpired);
   const admin = session.roles.includes('ADMIN');
   return (
     <>
       <div className="filters">
         {(['PENDING', 'APPROVED', 'REJECTED'] as const).map((s) => (
-          <button key={s} className={status === s ? 'on' : ''} onClick={() => setStatus(s)}>{s.toLowerCase()}</button>
+          <button key={s} className={status === s ? 'on' : ''} onClick={() => { setStatus(s); setPage(0); }}>{s.toLowerCase()}</button>
         ))}
       </div>
       {error && <p className="warn">{error}</p>}
@@ -95,6 +106,7 @@ function Proposals({ session, tick, onExpired }: { session: Session; tick: numbe
       {data?.items.map((p) => (
         <ProposalCard key={p.id} proposal={p} admin={admin} onDecided={() => setLocal((n) => n + 1)} onExpired={onExpired} />
       ))}
+      {data && <Pager page={page} hasMore={data.hasMore} onPage={setPage} />}
     </>
   );
 }
@@ -188,12 +200,7 @@ function Detections({ tick, onShow, onExpired }: { tick: number; onShow: (d: Det
           {openId === d.detectionId && <DetectionEvidence id={d.detectionId} onExpired={onExpired} />}
         </article>
       ))}
-      {data && (page > 0 || data.hasMore) && (
-        <div className="row">
-          <button disabled={page === 0} onClick={() => setPage(page - 1)}>Previous</button>
-          <button disabled={!data.hasMore} onClick={() => setPage(page + 1)}>Next</button>
-        </div>
-      )}
+      {data && <Pager page={page} hasMore={data.hasMore} onPage={setPage} />}
       <p className="note">Detections are observations for an analyst to look at, not findings of wrongdoing.</p>
     </>
   );
@@ -216,12 +223,13 @@ function DetectionEvidence({ id, onExpired }: { id: string; onExpired: () => voi
 
 function Cases({ tick, onExpired }: { tick: number; onExpired: () => void }) {
   const [status, setStatus] = useState('OPEN');
-  const { data, error } = useLoad(() => listCases(status), [status, tick], onExpired);
+  const [page, setPage] = useState(0);
+  const { data, error } = useLoad(() => listCases(status, page), [status, page, tick], onExpired);
   return (
     <>
       <div className="filters">
         {['OPEN', 'CLOSED'].map((s) => (
-          <button key={s} className={status === s ? 'on' : ''} onClick={() => setStatus(s)}>{s.toLowerCase()}</button>
+          <button key={s} className={status === s ? 'on' : ''} onClick={() => { setStatus(s); setPage(0); }}>{s.toLowerCase()}</button>
         ))}
       </div>
       {error && <p className="warn">{error}</p>}
@@ -232,6 +240,7 @@ function Cases({ tick, onExpired }: { tick: number; onExpired: () => void }) {
           <p className="meta">MMSI {c.mmsi} · opened {when(c.openedAt)}{c.closedAt ? ` · closed ${when(c.closedAt)}` : ''}</p>
         </article>
       ))}
+      {data && <Pager page={page} hasMore={data.hasMore} onPage={setPage} />}
     </>
   );
 }

@@ -16,7 +16,7 @@ describe('buildPortAnchorageCells', () => {
   const PORT_CELL = '86089b1a7ffffff';
   const ANCHOR_CELL = '861135847ffffff';
 
-  it('classifies cells with moored ships as ports and cells with anchored ships as anchorages', () => {
+  it('labels cells by what most of their stopped ships report', () => {
     const cells = buildPortAnchorageCells(
       [
         { mmsi: '1', latitude: 60.15, longitude: 24.92, sogKnots: 0.0, navStatus: NAV_MOORED, h3Cell: PORT_CELL },
@@ -44,12 +44,27 @@ describe('buildPortAnchorageCells', () => {
     expect(port.kind).toBe('port');
     expect(port.moored).toBe(2);
     expect(port.windowMaxStopped).toBe(7);
-    expect(port.qualifiesAsPortOrAnchorage).toBe(true);
 
     const anchorage = cells.find((c) => c.h3Cell === ANCHOR_CELL)!;
     expect(anchorage.kind).toBe('anchorage');
     expect(anchorage.anchored).toBe(3);
     expect(anchorage.moored).toBe(0);
-    expect(anchorage.qualifiesAsPortOrAnchorage).toBe(false);
+  });
+
+  it('does not guess a label for cells known only from coverage counts', () => {
+    const cells = buildPortAnchorageCells([], [
+      {
+        h3Cell: PORT_CELL,
+        hourStart: '2026-11-20T08:00:00Z',
+        positionsBySource: { DIGITRAFFIC: 300 },
+        vessels: 8,
+        stoppedVessels: 6,
+        windowPositionsBySource: { DIGITRAFFIC: 6000 },
+        windowMaxStoppedVessels: 6,
+      },
+    ]);
+    expect(cells).toHaveLength(1);
+    expect(cells[0].kind).toBe('stopped');
+    expect(cells[0].totalStopped).toBe(6);
   });
 });
