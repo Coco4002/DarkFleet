@@ -20,9 +20,9 @@ import java.time.Clock;
 import java.time.Duration;
 
 /**
- * Per-client-IP token-bucket rate limiter on the public map API ({@code /api/v1/map/**}).
- * Protects {@code map-gateway} and the upstream {@code vessel-intelligence} read endpoints from
- * scraping or request floods once the map is open to anonymous visitors.
+ * Per-client-IP token-bucket rate limiter on every request to the gateway (all of it is public).
+ * Limiting everything rather than matching paths means an encoded path such as {@code /api/v1/m%61p/}
+ * can't slip past it. Protects the gateway and the Vessel Intelligence reads behind it from floods.
  */
 @Component
 public class PublicRateLimitFilter extends OncePerRequestFilter {
@@ -43,12 +43,6 @@ public class PublicRateLimitFilter extends OncePerRequestFilter {
                 .expireAfterAccess(BUCKET_EXPIRY)
                 .maximumSize(MAX_TRACKED_IPS)
                 .build();
-    }
-
-    @Override
-    protected boolean shouldNotFilter(HttpServletRequest request) {
-        String path = request.getRequestURI();
-        return path == null || !path.startsWith("/api/v1/map/");
     }
 
     @Override
@@ -79,8 +73,7 @@ public class PublicRateLimitFilter extends OncePerRequestFilter {
                 return first;
             }
         }
-        String remote = request.getRemoteAddr();
-        return remote == null || remote.isBlank() ? "unknown" : remote;
+        return request.getRemoteAddr();
     }
 
     private static final class Bucket {

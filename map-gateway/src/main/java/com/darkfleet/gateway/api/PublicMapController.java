@@ -175,6 +175,12 @@ public class PublicMapController {
                 .body(intelligence.coverageHour(truncated));
     }
 
+    @GetMapping("/coverage/latest")
+    @Operation(summary = "Reception statistics per H3 cell for the newest published hour (for the live map)")
+    public ResponseEntity<List<CoverageView>> latestCoverage() {
+        return ResponseEntity.ok().cacheControl(CURRENT_HOUR_CACHE).body(intelligence.latestCoverage());
+    }
+
     /**
      * Ordinary track points are deleted after the window; older ones exist only around detections,
      * so serving them would tell the public which ships had one. Measured like the live map: by the

@@ -16,7 +16,6 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
-import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -110,34 +109,6 @@ class LiveSnapshotStoreTest {
         assertTrue(aisstream.stale(), "Feed with no message in 5 minutes (> 2m threshold) must be marked stale");
         assertEquals(AisSource.DIGITRAFFIC, digitraffic.source());
         assertFalse(digitraffic.stale());
-    }
-
-    @Test
-    void filtersOutNonPublicSourcesWhenConfiguredForDigitrafficOnly() {
-        GatewayProperties digitrafficOnly = new GatewayProperties(false, Duration.ofHours(1), Duration.ofDays(7),
-                Duration.ofDays(7), Duration.ofSeconds(5), Duration.ofMinutes(2), "http://localhost:8086",
-                "test-gateway-key", Duration.ofSeconds(5), "http://localhost/w/api.php", Duration.ofSeconds(3),
-                Duration.ofHours(24), Set.of(AisSource.DIGITRAFFIC), 120, 5);
-        LiveSnapshotStore store = new LiveSnapshotStore(digitrafficOnly, Clock.fixed(T0, ZoneOffset.UTC));
-
-        store.onVesselStatic(new VesselStatic("230000001", T0.minusSeconds(30), AisSource.AISSTREAM,
-                "9074729", "AISSTREAM NAME", "OJAB", 80, 10.5, "HELSINKI", 180, 30, null));
-        store.onTrackPoint(new TrackPoint("230000001", T0.minusSeconds(10), 60.1, 24.9, 12.0, 90.0, 90.0, 0,
-                AisSource.AISSTREAM, "861126d37ffffff"));
-        store.onFeedHealth(new FeedHealth(AisSource.AISSTREAM, T0.minusSeconds(5), 30, true, 500, 480,
-                T0.minusSeconds(1), 10_000, 0, 0));
-
-        store.onVesselStatic(new VesselStatic("230000002", T0.minusSeconds(30), AisSource.DIGITRAFFIC,
-                "9194270", "DIGITRAFFIC SHIP", "OJCD", 70, 8.0, "TALLINN", 120, 20, null));
-        store.onTrackPoint(new TrackPoint("230000002", T0.minusSeconds(10), 60.2, 25.0, 11.0, 85.0, 85.0, 0,
-                AisSource.DIGITRAFFIC, "861126d37ffffff"));
-        store.onFeedHealth(new FeedHealth(AisSource.DIGITRAFFIC, T0.minusSeconds(5), 30, true, 1100, 1050,
-                T0.minusSeconds(1), 50_000, 0, 0));
-
-        LiveSnapshot snapshot = store.snapshot();
-        assertEquals(List.of("230000002"), snapshot.vessels().stream().map(LiveVesselView::mmsi).toList());
-        assertEquals(List.of(AisSource.DIGITRAFFIC), snapshot.feeds().stream().map(FeedHealthView::source).toList());
-        assertEquals(null, store.staticData("230000001"));
     }
 
     private static GatewayProperties properties(boolean replay) {

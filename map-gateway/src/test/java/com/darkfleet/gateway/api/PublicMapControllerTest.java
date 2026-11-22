@@ -237,6 +237,9 @@ public class PublicMapControllerTest {
                 .andExpect(header().string(HttpHeaders.CACHE_CONTROL, containsString("max-age=60")))
                 .andExpect(jsonPath("$.vessels[0].mmsi").value(MMSI))
                 .andExpect(jsonPath("$.vessels[0].points.length()").value(2));
+        mvc.perform(get("/api/v1/map/coverage/latest"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].h3Cell").value(CELL));
         mvc.perform(get("/api/v1/map/coverage?hour={hour}", pastHour))
                 .andExpect(status().isOk())
                 .andExpect(header().string(HttpHeaders.CACHE_CONTROL, containsString("max-age=60")))

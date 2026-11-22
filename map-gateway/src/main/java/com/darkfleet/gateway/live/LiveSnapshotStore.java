@@ -99,10 +99,9 @@ public class LiveSnapshotStore {
         this.clock = clock;
     }
 
-    /** Records a track point if its source is allowed on the public map and it is newer than what we hold. */
+    /** Records a track point if it is newer than what we already hold for that MMSI. */
     public void onTrackPoint(TrackPoint point) {
-        if (point == null || !properties.isSourcePublic(point.source())
-                || !validCoordinates(point.latitude(), point.longitude())) {
+        if (point == null || !validCoordinates(point.latitude(), point.longitude())) {
             return;
         }
         latestPositions.compute(point.mmsi(), (mmsi, current) ->
@@ -111,21 +110,20 @@ public class LiveSnapshotStore {
     }
 
     /**
-     * Merges a static vessel report if its source is allowed on the public map: a newer report updates
-     * the fields it carries while keeping non-null fields from earlier reports when the newer report
-     * leaves them blank. An out-of-order older report only fills in fields that are still missing.
+     * Merges a static vessel report: a newer report updates the fields it carries while keeping
+     * non-null fields from earlier reports when the newer report leaves them blank. An out-of-order
+     * older report only fills in fields that are still missing.
      */
     public void onVesselStatic(VesselStatic report) {
-        if (report == null || !properties.isSourcePublic(report.source())) {
+        if (report == null) {
             return;
         }
         staticByMmsi.compute(report.mmsi(), (mmsi, current) -> mergeStatic(current, report));
     }
 
-    /** Records a feed heartbeat if its source is allowed on the public map and it is at least as recent as the last one. */
+    /** Records a feed heartbeat if it is at least as recent as the last one for that feed. */
     public void onFeedHealth(FeedHealth health) {
-        if (health == null || health.source() == null || health.emittedAt() == null
-                || !properties.isSourcePublic(health.source())) {
+        if (health == null || health.source() == null || health.emittedAt() == null) {
             return;
         }
         feedHealth.compute(health.source(), (source, current) ->

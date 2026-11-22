@@ -4,5 +4,3 @@ darkfleet:
   gateway:
     replay: true
     intelligence-url: ${DARKFLEET_INTELLIGENCE_REPLAY_URL:http://localhost:8087}
-    public-sources: DMA_REPLAY,DIGITRAFFIC,AISSTREAM
-

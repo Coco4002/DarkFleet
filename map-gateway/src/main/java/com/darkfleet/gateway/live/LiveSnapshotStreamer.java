@@ -5,7 +5,6 @@ import com.darkfleet.gateway.web.ApiException;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
@@ -46,45 +45,34 @@ public class LiveSnapshotStreamer {
     private final JsonMapper json;
     private final int maxStreamsPerIp;
     private final Set<Client> clients = ConcurrentHashMap.newKeySet();
-    private final Map<String, AtomicInteger> activeByIp = new ConcurrentHashMap<>();
+    /** Open streams per client address; reserved and released inside compute, so the count can't be lost. */
+    private final Map<String, Integer> activeByIp = new ConcurrentHashMap<>();
     private final ExecutorService senders = Executors.newVirtualThreadPerTaskExecutor();
 
-    @Autowired
     public LiveSnapshotStreamer(LiveSnapshotStore store, JsonMapper json, GatewayProperties properties) {
         this.store = store;
         this.json = json;
         this.maxStreamsPerIp = properties.maxLiveStreamsPerIp();
     }
 
-    public LiveSnapshotStreamer(LiveSnapshotStore store, JsonMapper json) {
-        this.store = store;
-        this.json = json;
-        this.maxStreamsPerIp = GatewayProperties.DEFAULT_MAX_LIVE_STREAMS_PER_IP;
-    }
-
-    public SseEmitter connect() {
-        return connect(null);
-    }
-
     public SseEmitter connect(String clientIp) {
         if (clients.size() >= MAX_CONNECTIONS) {
             throw ApiException.unavailable("Too many open live streams; try again later");
         }
-        String ipKey = clientIp == null || clientIp.isBlank() ? null : clientIp;
-        if (ipKey != null) {
-            AtomicInteger count = activeByIp.computeIfAbsent(ipKey, k -> new AtomicInteger());
-            while (true) {
-                int current = count.get();
-                if (current >= maxStreamsPerIp) {
-                    throw ApiException.tooManyRequests(
-                            "Too many open live streams from this address; close another tab and try again");
-                }
-                if (count.compareAndSet(current, current + 1)) {
-                    break;
-                }
+        boolean[] admitted = {false};
+        activeByIp.compute(clientIp, (ip, open) -> {
+            int count = open == null ? 0 : open;
+            if (count >= maxStreamsPerIp) {
+                return open;
             }
+            admitted[0] = true;
+            return count + 1;
+        });
+        if (!admitted[0]) {
+            throw ApiException.tooManyRequests(
+                    "Too many open live streams from this address; close another tab and try again");
         }
-        Client client = new Client(new SseEmitter(CONNECTION_LIFETIME.toMillis()), ipKey);
+        Client client = new Client(new SseEmitter(CONNECTION_LIFETIME.toMillis()), clientIp);
         Runnable cleanup = () -> removeClient(client);
         client.emitter.onCompletion(cleanup);
         client.emitter.onTimeout(cleanup);
@@ -96,8 +84,8 @@ public class LiveSnapshotStreamer {
     }
 
     private void removeClient(Client client) {
-        if (clients.remove(client) && client.ipKey != null) {
-            activeByIp.computeIfPresent(client.ipKey, (k, count) -> count.decrementAndGet() <= 0 ? null : count);
+        if (clients.remove(client)) {
+            activeByIp.computeIfPresent(client.ipKey, (ip, open) -> open <= 1 ? null : open - 1);
         }
     }
 

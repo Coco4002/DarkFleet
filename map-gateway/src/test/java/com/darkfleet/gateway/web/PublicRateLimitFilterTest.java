@@ -1,6 +1,5 @@
 package com.darkfleet.gateway.web;
 
-import com.darkfleet.common.model.AisSource;
 import com.darkfleet.gateway.GatewayProperties;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockFilterChain;
@@ -11,7 +10,6 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
-import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -24,11 +22,12 @@ class PublicRateLimitFilterTest {
         GatewayProperties props = new GatewayProperties(false, Duration.ofHours(1), Duration.ofDays(7),
                 Duration.ofDays(7), Duration.ofSeconds(5), Duration.ofMinutes(2), "http://localhost:8086",
                 "test-key", Duration.ofSeconds(5), "http://localhost/w/api.php", Duration.ofSeconds(3),
-                Duration.ofHours(24), Set.of(AisSource.DIGITRAFFIC), 3, 2);
+                Duration.ofHours(24), 3, 2);
         PublicRateLimitFilter filter = new PublicRateLimitFilter(props, Clock.fixed(t0, ZoneOffset.UTC));
 
         for (int i = 0; i < 3; i++) {
-            MockHttpServletRequest req = new MockHttpServletRequest("GET", "/api/v1/map/snapshot");
+            // an encoded path counts like any other
+            MockHttpServletRequest req = new MockHttpServletRequest("GET", i == 0 ? "/api/v1/m%61p/snapshot" : "/api/v1/map/snapshot");
             req.addHeader("X-Forwarded-For", "203.0.113.10");
             MockHttpServletResponse res = new MockHttpServletResponse();
             filter.doFilter(req, res, new MockFilterChain());

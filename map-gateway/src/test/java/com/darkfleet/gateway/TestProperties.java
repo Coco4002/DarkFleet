@@ -1,9 +1,6 @@
 package com.darkfleet.gateway;
 
-import com.darkfleet.common.model.AisSource;
-
 import java.time.Duration;
-import java.util.EnumSet;
 
 /** The gateway's settings as in application.yml, for tests that build the classes by hand. */
 public final class TestProperties {
@@ -15,7 +12,6 @@ public final class TestProperties {
         return new GatewayProperties(replay, Duration.ofHours(1), Duration.ofDays(7), Duration.ofDays(7),
                 Duration.ofSeconds(5), Duration.ofMinutes(2), "http://localhost:8086", "test-gateway-key",
                 Duration.ofSeconds(5), wikimediaApiUrl, Duration.ofSeconds(3), Duration.ofHours(24),
-                EnumSet.allOf(AisSource.class), GatewayProperties.DEFAULT_RATE_LIMIT_PER_MINUTE,
-                GatewayProperties.DEFAULT_MAX_LIVE_STREAMS_PER_IP);
+                120, 5);
     }
 }
