@@ -28,6 +28,7 @@ export function useAnalystFeed(session: Session | null) {
     let cancelled = false;
     let retry: ReturnType<typeof setTimeout> | undefined;
     async function load() {
+      if (cancelled) return;
       clearTimeout(retry);
       try {
         const [d, p] = await Promise.all([listDetections({ status: 'OPEN' }), listProposals('PENDING', 0)]);
@@ -36,7 +37,9 @@ export function useAnalystFeed(session: Session | null) {
         setPending(p.items.length + (p.hasMore ? 1 : 0));
         setTick((t) => t + 1);
       } catch {
-        if (!cancelled) retry = setTimeout(() => void load(), 15_000);
+        if (cancelled) return;
+        clearTimeout(retry); // two loads can fail together; keep one retry
+        retry = setTimeout(() => void load(), 15_000);
       }
     }
     void load();
